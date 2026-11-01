@@ -3,11 +3,26 @@
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const {DatabaseSync}=require('node:sqlite');
 const zlib=require('node:zlib');
+// ================= BACKUP REMOTO (S3 / Cloudflare R2 / Backblaze B2 …) =================
+// Para hospedagem SEM disco persistente (ex.: Render grátis): o banco é salvo num bucket S3 a cada ~2 min e
+// ao desligar/deploy (SIGTERM); ao iniciar num container novo ele é restaurado do bucket. Sem dependências (assinatura SigV4 própria).
+const s3on=()=>!!(process.env.S3_ENDPOINT&&process.env.S3_BUCKET&&process.env.S3_KEY&&process.env.S3_SECRET);
+const hm=(k,d)=>crypto.createHmac('sha256',k).update(d).digest(),shx=d=>crypto.createHash('sha256').update(d).digest('hex');
+async function s3(method,key,body){const ep=new URL(process.env.S3_ENDPOINT),region=process.env.S3_REGION||'auto',pth='/'+process.env.S3_BUCKET+'/'+key.split('/').map(encodeURIComponent).join('/');
+ const amz=new Date().toISOString().replace(/[:-]|\.\d{3}/g,''),day=amz.slice(0,8),ph=shx(body||''),sh='host;x-amz-content-sha256;x-amz-date';
+ const cr=[method,pth,'','host:'+ep.host+'\nx-amz-content-sha256:'+ph+'\nx-amz-date:'+amz+'\n',sh,ph].join('\n'),sc=day+'/'+region+'/s3/aws4_request',sts=['AWS4-HMAC-SHA256',amz,sc,shx(cr)].join('\n');
+ const sig=crypto.createHmac('sha256',hm(hm(hm(hm('AWS4'+process.env.S3_SECRET,day),region),'s3'),'aws4_request')).update(sts).digest('hex');
+ const r=await fetch(ep.origin+pth,{method,headers:{'x-amz-date':amz,'x-amz-content-sha256':ph,authorization:'AWS4-HMAC-SHA256 Credential='+process.env.S3_KEY+'/'+sc+', SignedHeaders='+sh+', Signature='+sig},body:body||undefined,signal:AbortSignal.timeout(60000)});
+ return{status:r.status,buf:Buffer.from(await r.arrayBuffer())}}
+const S3P=(process.env.S3_PREFIX||'abi').replace(/\/+$/,''),S3LATEST=S3P+'/jogo-latest.db.gz';
+const DBF=path.resolve(process.env.DB||'jogo.db');
+if(process.argv[2]==='--restore'){(async()=>{try{const r=await s3('GET',S3LATEST);if(r.status===200){fs.mkdirSync(path.dirname(DBF),{recursive:true});for(const x of ['','-wal','-shm','-journal'])try{fs.unlinkSync(DBF+x)}catch(e){}fs.writeFileSync(DBF,zlib.gunzipSync(r.buf));console.log('☁️ banco restaurado do backup remoto ('+Math.round(r.buf.length/1024)+' KB)')}else console.log('☁️ sem backup remoto ainda (HTTP '+r.status+')')}catch(e){console.error('☁️ restauração falhou:',e.message)}process.exit(0)})();return}
+if(s3on()&&!fs.existsSync(DBF+'.s3ok')){try{require('node:child_process').execFileSync(process.execPath,[__filename,'--restore'],{stdio:'inherit',env:process.env,timeout:120000})}catch(e){console.error('☁️ restauração falhou')}try{fs.mkdirSync(path.dirname(DBF),{recursive:true});fs.writeFileSync(DBF+'.s3ok',String(Date.now()))}catch(e){}}
 const PORT=+process.env.PORT||3000,HOST=process.env.HOST||'0.0.0.0',ADMIN=process.env.ADMIN_TOKEN;
 // Atrás de proxy/HTTPS (Render, Fly, Railway, Caddy, Nginx): TRUST_PROXY=1 para usar o IP real nos limites de login.
 const ipOf=q=>process.env.TRUST_PROXY==='1'?String((q.headers['x-forwarded-for']||'').split(',')[0]||q.socket.remoteAddress).trim():q.socket.remoteAddress;
 if(!ADMIN||ADMIN.length<12){console.error('Defina ADMIN_TOKEN com 12+ caracteres.');process.exit(1)}
-const db=new DatabaseSync(process.env.DB||'jogo.db');
+const db=new DatabaseSync(DBF);
 db.exec(`CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,name TEXT UNIQUE COLLATE NOCASE,salt TEXT,hash TEXT,created INT,banned INT DEFAULT 0);
 CREATE TABLE IF NOT EXISTS sessions(th TEXT PRIMARY KEY,uid INT,created INT);
 CREATE TABLE IF NOT EXISTS saves(uid INT PRIMARY KEY,state TEXT,maxLv INT,sumLv INT,chars INT,gold INT,orc INT,stage INT,updated INT);
@@ -54,7 +69,8 @@ try{db.exec('ALTER TABLE saves ADD COLUMN dia INT DEFAULT 0')}catch(e){}
 try{db.exec('ALTER TABLE saves ADD COLUMN prof TEXT')}catch(e){}try{db.exec('ALTER TABLE saves ADD COLUMN plv INT DEFAULT 0')}catch(e){}
 db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY,v TEXT)');
 try{db.exec('ALTER TABLE users ADD COLUMN ep INT DEFAULT 0')}catch(e){}
-for(const c of ['email TEXT','tsalt TEXT','thash TEXT','texp INT DEFAULT 0'])try{db.exec('ALTER TABLE users ADD COLUMN '+c)}catch(e){}
+for(const c of ['gsub TEXT','email TEXT','tsalt TEXT','thash TEXT','texp INT DEFAULT 0'])try{db.exec('ALTER TABLE users ADD COLUMN '+c)}catch(e){}
+try{db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_gsub ON users(gsub) WHERE gsub IS NOT NULL')}catch(e){}
 try{db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(lower(email)) WHERE email IS NOT NULL')}catch(e){}
 (process.env.DEV_USERS||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(n=>{try{X('UPDATE users SET dev=1 WHERE name=?',n)}catch(e){}});
 const getEpoch=()=>(Q1("SELECT v FROM meta WHERE k='epoch'")||{v:'0'}).v;
@@ -128,8 +144,18 @@ const rtRoutes={
  async 'POST /api/email'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),em=String(b.email||'').trim().toLowerCase();if(!EMAIL_RE.test(em))return send(r,400,{error:'E-mail inválido.'});
   if(u.email&&!pwOk(u,b.pass))return send(r,403,{error:'Senha atual incorreta.'});if(Q1('SELECT 1 FROM users WHERE lower(email)=? AND id<>?',em,u.id))return send(r,409,{error:'Este e-mail já está em uso.'});
   X('UPDATE users SET email=? WHERE id=?',em,u.id);send(r,200,{ok:1})},
+ 'GET /api/config'(q,r){send(r,200,{google:process.env.GOOGLE_CLIENT_ID||null,mail:mailOn()})},
+ async 'POST /api/google'(q,r){const CID=process.env.GOOGLE_CLIENT_ID;if(!CID)return send(r,503,{error:'Login com Google não está configurado.'});
+  if(limited('gg'+ipOf(q),30,600e3))return send(r,429,{error:'Muitas tentativas.'});const b=await body(q),cred=String(b.credential||'');if(cred.length<100||cred.length>5000)return send(r,400,{error:'Credencial inválida.'});
+  let t;try{const x=await fetch((process.env.GOOGLE_TOKENINFO_URL||'https://oauth2.googleapis.com/tokeninfo')+'?id_token='+encodeURIComponent(cred),{signal:AbortSignal.timeout(10000)});if(!x.ok)return send(r,401,{error:'Google recusou o login.'});t=await x.json()}catch(e){return send(r,502,{error:'Não consegui falar com o Google.'})}
+  if(t.aud!==CID||!/^(https:\/\/)?accounts\.google\.com$/.test(String(t.iss||''))||String(t.email_verified)!=='true'||!t.sub||!t.email||+t.exp*1000<Date.now())return send(r,401,{error:'Login do Google inválido.'});
+  const em=String(t.email).toLowerCase();let u=Q1('SELECT * FROM users WHERE gsub=?',t.sub)||Q1('SELECT * FROM users WHERE lower(email)=?',em);
+  if(u){if(u.banned)return send(r,403,{error:'Conta bloqueada.'});if(!u.gsub)X('UPDATE users SET gsub=? WHERE id=?',t.sub,u.id);return send(r,200,{token:login(u.id),user:u.name})}
+  let base=String(t.name||em.split('@')[0]).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w.-]+/g,'').slice(0,14)||'jogador',n=base;for(let i=0;i<50&&(n.length<3||Q1('SELECT 1 FROM users WHERE name=?',n));i++)n=base+Math.floor(Math.random()*9000+1000);
+  const salt=crypto.randomBytes(16).toString('hex'),hash=crypto.scryptSync(crypto.randomBytes(24).toString('hex'),salt,64).toString('hex');
+  const id=X('INSERT INTO users(name,salt,hash,created,email,gsub) VALUES(?,?,?,?,?,?)',n,salt,hash,Date.now(),em,t.sub).lastInsertRowid;send(r,200,{token:login(id),user:n,novo:1})},
  'GET /api/me'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{id:'u'+u.id,name:u.name,dev:!!u.dev,hasEmail:!!u.email})},
- 'GET /healthz'(q,r){try{Q1('SELECT 1 x');send(r,200,{ok:1,rooms:ROOMS.size,peers:[...ROOMS.values()].reduce((n,x)=>n+x.peers.size,0)})}catch(e){send(r,500,{ok:0})}}};
+ 'GET /healthz'(q,r){try{Q1('SELECT 1 x');send(r,200,{ok:1,persist:DBD.persist,s3:{on:S3S.on,ultimoBackup:S3S.ok?new Date(S3S.ok).toISOString():null,backups:S3S.n,erro:S3S.err||null},db:DBD.file,mount:DBD.mount,fstype:DBD.fstype,users:(Q1('SELECT COUNT(*) n FROM users')||{}).n,rooms:ROOMS.size,peers:[...ROOMS.values()].reduce((n,x)=>n+x.peers.size,0)})}catch(e){send(r,500,{ok:0})}}};
 
 // ================= E-MAIL (cadastro / "esqueci a senha") =================
 // Opção A (mais simples): RESEND_API_KEY + MAIL_FROM  (resend.com, plano grátis)
@@ -155,6 +181,10 @@ const PW_ALPHA='abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const genPass=()=>Array.from(crypto.randomBytes(10),b=>PW_ALPHA[b%PW_ALPHA.length]).join('');
 const pwOk=(u,p)=>{const h=crypto.scryptSync(String(p||''),u.salt,64),g=Buffer.from(u.hash,'hex');return h.length===g.length&&crypto.timingSafeEqual(h,g)};
 const tmpOk=(u,p)=>{if(!u.thash||!(u.texp>Date.now()))return false;const h=crypto.scryptSync(String(p||''),u.tsalt,64),g=Buffer.from(u.thash,'hex');return h.length===g.length&&crypto.timingSafeEqual(h,g)};
+// Descobre se o banco está em disco persistente (volume montado) ou no disco temporário do container.
+function dbDisk(){try{const f=path.resolve(process.env.DB||'jogo.db');let best=null;for(const l of fs.readFileSync('/proc/mounts','utf8').split('\n')){const a=l.split(' ');if(a.length<3)continue;const mp=a[1].replace(/\\040/g,' ');if((f===mp||f.startsWith(mp==='/'?'/':mp+'/'))&&(!best||mp.length>best.mp.length))best={mp,fs:a[2],dev:a[0]}}
+ const temp=!best||best.mp==='/'||['overlay','tmpfs','aufs','squashfs'].includes(best.fs);return{file:f,mount:best?best.mp:'?',fstype:best?best.fs:'?',persist:!temp}}catch(e){return{file:path.resolve(process.env.DB||'jogo.db'),persist:null}}}
+const DBD=dbDisk();
 const routes={
 ...rtRoutes,
 async 'POST /api/register'(q,r){const b=await body(q);const n=String(b.user||'').trim(),p=String(b.pass||'');
@@ -236,6 +266,7 @@ const srv=http.createServer(async(q,r)=>{const url=new URL(q.url,'http://x');
   try{const f=routes[q.method+' '+url.pathname];if(f)return await f(q,r,url);
    if((q.method==='GET'||q.method==='HEAD')&&staticFile(q,r,url))return;if(url.pathname==='/'&&!fs.existsSync(path.join(PUB,'index.html'))){r.writeHead(404,{'content-type':'text/plain;charset=utf-8'});r.end('Servidor no ar, mas falta o arquivo public/index.html no deploy (pasta '+PUB+'). Envie a pasta public inteira para o repositório.');return}r.writeHead(404);r.end('404')
   }catch(e){if(!r.headersSent)send(r,e===0?400:500,{error:'erro'})}});
+if(DBD.persist===false&&!s3on())console.error('⚠️ ATENÇÃO: o banco ('+DBD.file+') está no disco TEMPORÁRIO ('+DBD.mount+' '+DBD.fstype+'). As contas serão APAGADAS a cada deploy/reinício. Crie um Disk (Render: Disks → Mount Path /data) e use DB=/data/jogo.db.');
 if(!fs.existsSync(path.join(PUB,'index.html')))console.error('AVISO: '+path.join(PUB,'index.html')+' não existe — a página inicial dará 404.');
 srv.keepAliveTimeout=65e3;srv.headersTimeout=70e3;
 srv.listen(PORT,HOST,()=>console.log('Adventure Brazilian IDLE em http://'+(HOST==='0.0.0.0'?'localhost':HOST)+':'+PORT+'  (DB: '+(process.env.DB||'jogo.db')+')'));
@@ -247,7 +278,18 @@ function backup(){try{fs.mkdirSync(BK,{recursive:true});const fl=fs.readdirSync(
  db.exec(`VACUUM INTO '${path.join(BK,name).replace(/'/g,"''")}'`);console.log('backup',name);
  fs.readdirSync(BK).filter(f=>/^jogo-\d{8}-\d{4}\.db$/.test(f)).sort().slice(0,-7).forEach(f=>{try{fs.unlinkSync(path.join(BK,f))}catch(e){}})}catch(e){console.error('backup falhou',e.message)}}
 if(process.env.BACKUP!=='0'){setTimeout(backup,15e3);setInterval(backup,3600e3)}
+
+// ---- envio do backup remoto
+const S3S={on:s3on(),ok:0,err:'',n:0};let s3sig='',s3day='',s3busy=false;
+async function s3Backup(force){if(!s3on()||s3busy)return;s3busy=true;try{
+ const sig=Q1("SELECT (SELECT COUNT(*) FROM users)||':'||(SELECT COUNT(*) FROM sessions)||':'||(SELECT COALESCE(MAX(updated),0) FROM saves)||':'||(SELECT COUNT(*) FROM alerts) v").v;
+ if(!force&&sig===s3sig)return;const tmp=DBF+'.up';try{fs.unlinkSync(tmp)}catch(e){}db.exec(`VACUUM INTO '${tmp.replace(/'/g,"''")}'`);
+ const gz=zlib.gzipSync(fs.readFileSync(tmp),{level:6});try{fs.unlinkSync(tmp)}catch(e){}
+ const a=await s3('PUT',S3LATEST,gz);if(a.status>=300)throw new Error('S3 PUT '+a.status+' '+a.buf.toString().slice(0,160));
+ const d=new Date().toISOString().slice(0,10);if(d!==s3day){const b=await s3('PUT',S3P+'/diario/jogo-'+d+'.db.gz',gz);if(b.status<300)s3day=d}
+ s3sig=sig;S3S.ok=Date.now();S3S.err='';S3S.n++}catch(e){S3S.err=String(e.message||e).slice(0,200);console.error('☁️ backup remoto falhou:',S3S.err)}finally{s3busy=false}}
+if(s3on()){console.log('☁️ backup remoto ligado → '+process.env.S3_BUCKET+'/'+S3P);setTimeout(()=>s3Backup(1),8e3);setInterval(()=>s3Backup(0),Math.max(30,+process.env.S3_EVERY_S||120)*1e3)}
 // ---- limpeza de sessões antigas e encerramento limpo
 setInterval(()=>{try{X('DELETE FROM sessions WHERE created<?',Date.now()-90*864e5)}catch(e){}},6*3600e3);
-function bye(){console.log('encerrando…');for(const rm of ROOMS.values())for(const p of rm.peers.values())try{p.res.end()}catch(e){}srv.close(()=>{try{db.close()}catch(e){}process.exit(0)});setTimeout(()=>process.exit(0),4000).unref()}
+let byeing=0;async function bye(){if(byeing)return;byeing=1;console.log('encerrando…');for(const rm of ROOMS.values())for(const p of rm.peers.values())try{p.res.end()}catch(e){}try{srv.close()}catch(e){}if(s3on()){s3busy=false;try{await Promise.race([s3Backup(1),new Promise(r=>setTimeout(r,20000))]);console.log('☁️ backup final '+(S3S.err?'FALHOU':'ok'))}catch(e){}}try{db.close()}catch(e){}process.exit(0)}
 process.on('SIGTERM',bye);process.on('SIGINT',bye);
