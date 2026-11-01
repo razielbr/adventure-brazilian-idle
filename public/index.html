@@ -2248,6 +2248,7 @@ if(!S.gift499){S.gift499=1;S.orc=(S.orc|0)+499;save()}
 if(!S.gift400b){S.gift400b=1;S.orc=(S.orc|0)+400;save()}
 S.eqs.forEach(e=>{if(e.slot===7&&/^Colar/.test(e.name||''))e.slot=9});S.chars.forEach(c=>{if(c.rn&&c.rn.length)c.rn=[]});S.chars.forEach(c=>{if((c.sp==='assassino'||c.sp==='assassin')&&c.eq&&c.eq[10])c.eq[10]=null});(S.pots||[]).forEach(q=>{if(q.rar==null)q.rar=0});S.seen=[...new Set([...(S.seen||[]),...S.eqs.map(x=>x.id),...S.runes.map(x=>x.id)])];window.__dl0=1;try{if(!S.rrSt){S.rrSt=1;S.eqs.forEach(e=>{if(!e.cust&&!e.sp&&e.st!=='TODOS'){e.st=pick(ST);e.rs=1}});save()}}catch(e){}try{shMig();eqFix()}catch(e){}S.chars.forEach(c=>{const e=c.eq[7]&&EQ(c.eq[7]);if(e&&e.slot===9){c.eq[9]=e.id;c.eq[7]=null}});
 if(NEWACC){S.chars=S.chars.slice(0,4);S.team=S.chars.map(c=>c.id);S.sel=S.chars[0].id;S.eqs=[];S.runes=[];S.pots=[];S.mats={};S.list=[];S.tts=[];S.tte=null;S.vip=0;delete S.pp;S.prof=null;S.gold=0;S.dia=0;S.cred=0;S.orc=0;S.chests=0;S.cbx=[0,0,0,0,0];S.bch=0;S.bUntil=0;S.seen=[];S.solarDay=new Date().toLocaleDateString('sv').slice(0,7);save()}
+if(!S.giftWB){S.giftWB=1;S.chests=(S.chests|0)+10;S.vip=Math.max(S.vip||0,Date.now())+7*864e5;save();setTimeout(()=>{try{L('🎁 Bônus de boas-vindas: +10 Baús Easy e VIP por 7 dias!')}catch(e){}},1500)}
 if(!isDevU())S.profLock=true;
 const offMsg=offlineSim();if(isVip())S.auto=true;
 setInterval(()=>{S.last=Date.now();save()},30000);dqTick();setInterval(dqTick,20000);
