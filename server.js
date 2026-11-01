@@ -67,7 +67,13 @@ CREATE TABLE IF NOT EXISTS wday(uid INT,day INT,dia INT DEFAULT 0,orc INT DEFAUL
 CREATE TABLE IF NOT EXISTS credits(id INTEGER PRIMARY KEY,uid INT,dia INT,orc INT,note TEXT,at INT,applied INT DEFAULT 0);`);
 try{db.exec('ALTER TABLE saves ADD COLUMN dia INT DEFAULT 0')}catch(e){}
 try{db.exec('ALTER TABLE saves ADD COLUMN prof TEXT')}catch(e){}try{db.exec('ALTER TABLE saves ADD COLUMN plv INT DEFAULT 0')}catch(e){}
-db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY,v TEXT)');db.exec('CREATE TABLE IF NOT EXISTS devops(id INTEGER PRIMARY KEY,uid INT,op TEXT,at INT,done INT DEFAULT 0)');
+db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY,v TEXT)');db.exec('CREATE TABLE IF NOT EXISTS houses(k TEXT PRIMARY KEY,uid INT,at INT)');
+const HABS=7*864e5,HK_RE=/^\d{1,3}:\d{1,3}$/;
+function hsStale(uid){const s=Q1('SELECT updated FROM saves WHERE uid=?',uid);return !s||Date.now()-s.updated>HABS}
+function hsVacate(k,uid){X('DELETE FROM houses WHERE k=? AND uid=?',k,uid);const s=Q1('SELECT state FROM saves WHERE uid=?',uid);if(!s)return;try{const st=JSON.parse(s.state);let ch=0;for(const f of ['hs','hn','hl'])if(st[f]&&st[f][k]){delete st[f][k];ch=1}if(st.home&&st.home.k===k){st.home=null;ch=1}if(ch)X('UPDATE saves SET state=? WHERE uid=?',JSON.stringify(st),uid)}catch(e){}}
+function hsSweep(){try{Q('SELECT k,uid FROM houses').forEach(h=>{if(hsStale(h.uid))hsVacate(h.k,h.uid)})}catch(e){}}
+setTimeout(hsSweep,5000);setInterval(hsSweep,36e5);
+db.exec('CREATE TABLE IF NOT EXISTS devops(id INTEGER PRIMARY KEY,uid INT,op TEXT,at INT,done INT DEFAULT 0)');
 try{db.exec('ALTER TABLE users ADD COLUMN ep INT DEFAULT 0')}catch(e){}
 for(const c of ['gsub TEXT','email TEXT','tsalt TEXT','thash TEXT','texp INT DEFAULT 0','gexp INT DEFAULT 0','pid INT'])try{db.exec('ALTER TABLE users ADD COLUMN '+c)}catch(e){}
 try{db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_gsub ON users(gsub) WHERE gsub IS NOT NULL')}catch(e){}
@@ -171,6 +177,20 @@ const rtRoutes={
   send(r,200,{ok:1,id:t.pid||t.id,name:t.name})},
  async 'GET /api/ops'(q,r){const u=user(q);if(!u)return send(r,401,{});const rows=Q('SELECT id,op FROM devops WHERE uid=? AND done=0 ORDER BY id LIMIT 50',u.id);const ops=[];rows.forEach(w=>{try{ops.push(JSON.parse(w.op))}catch(e){}X('UPDATE devops SET done=1 WHERE id=?',w.id)});if(ops.length)X('UPDATE users SET gexp=? WHERE id=?',Date.now()+180000,u.id);send(r,200,{ops})},
  'GET /api/version'(q,r){let v='0';try{const st=fs.statSync(path.join(PUB,'index.html'));v=st.size.toString(36)+'-'+Math.floor(st.mtimeMs/1000).toString(36)}catch(e){}r.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});r.end(JSON.stringify({v}))},
+ async 'POST /api/house/claim'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),k=String(b.k||'');if(!HK_RE.test(k)||/^14:/.test(k))return send(r,400,{error:'Casa inválida.'});
+  const row=Q1('SELECT h.uid,u.name FROM houses h JOIN users u ON u.id=h.uid WHERE h.k=?',k);
+  if(row&&row.uid!==u.id){if(hsStale(row.uid))hsVacate(k,row.uid);else return send(r,409,{error:'Esta casa já tem dono ('+String(row.name).replace(/[<>&]/g,'')+').'})}
+  if(Q1('SELECT 1 FROM houses WHERE uid=? AND k<>?',u.id,k))return send(r,409,{error:'Você já tem uma casa comprada: só é permitido ter 1.'});
+  X('INSERT OR REPLACE INTO houses(k,uid,at) VALUES(?,?,?)',k,u.id,Date.now());send(r,200,{ok:1})},
+ async 'POST /api/house/release'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),k=String(b.k||'');if(HK_RE.test(k))X('DELETE FROM houses WHERE k=? AND uid=?',k,u.id);send(r,200,{ok:1})},
+ async 'POST /api/house/sync'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),ks=(Array.isArray(b.ks)?b.ks:[]).map(String).filter(k=>HK_RE.test(k)&&!/^14:/.test(k)).slice(0,6),lost=[];
+  const sv=Q1('SELECT updated FROM saves WHERE uid=?',u.id),selfStale=!!sv&&Date.now()-sv.updated>HABS;let kept=0;
+  for(const k of ks){let row=Q1('SELECT uid FROM houses WHERE k=?',k);
+   if(row&&row.uid!==u.id){if(hsStale(row.uid)){hsVacate(k,row.uid);row=null}else{lost.push(k);continue}}
+   if(selfStale){if(row)X('DELETE FROM houses WHERE k=?',k);lost.push(k);continue}
+   if(kept>=1||(!row&&Q1('SELECT 1 FROM houses WHERE uid=? AND k<>?',u.id,k))){lost.push(k);continue}
+   kept++;if(!row)X('INSERT OR REPLACE INTO houses(k,uid,at) VALUES(?,?,?)',k,u.id,Date.now())}
+  send(r,200,{lost})},
  'GET /api/me'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{id:'u'+u.id,uid:u.pid,name:u.name,dev:!!u.dev,hasEmail:!!u.email})},
  'GET /healthz'(q,r){try{Q1('SELECT 1 x');send(r,200,{ok:1,persist:DBD.persist,s3:{on:S3S.on,ultimoBackup:S3S.ok?new Date(S3S.ok).toISOString():null,backups:S3S.n,erro:S3S.err||null},db:DBD.file,mount:DBD.mount,fstype:DBD.fstype,users:(Q1('SELECT COUNT(*) n FROM users')||{}).n,rooms:ROOMS.size,peers:[...ROOMS.values()].reduce((n,x)=>n+x.peers.size,0)})}catch(e){send(r,500,{ok:0})}}};
 
