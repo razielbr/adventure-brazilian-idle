@@ -154,7 +154,13 @@ const rtRoutes={
   let base=String(t.name||em.split('@')[0]).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w.-]+/g,'').slice(0,14)||'jogador',n=base;for(let i=0;i<50&&(n.length<3||Q1('SELECT 1 FROM users WHERE name=?',n));i++)n=base+Math.floor(Math.random()*9000+1000);
   const salt=crypto.randomBytes(16).toString('hex'),hash=crypto.scryptSync(crypto.randomBytes(24).toString('hex'),salt,64).toString('hex');
   const id=X('INSERT INTO users(name,salt,hash,created,email,gsub) VALUES(?,?,?,?,?,?)',n,salt,hash,Date.now(),em,t.sub).lastInsertRowid;send(r,200,{token:login(id),user:n,novo:1})},
- 'GET /api/me'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{id:'u'+u.id,name:u.name,dev:!!u.dev,hasEmail:!!u.email})},
+ async 'POST /api/devcmd'(q,r){const u=user(q);if(!u||!u.dev)return send(r,403,{error:'Só conta DEV.'});const b=await body(q);const cmd=String(b.cmd||'').toLowerCase(),qtd=Math.trunc(+b.qtd||0);let a=String(b.alvo||'').trim().slice(0,200);
+  if(!['diamantes','oricalco'].includes(cmd)||!qtd||Math.abs(qtd)>1e7)return send(r,400,{error:'Use: @Diamantes <email, ID ou nome> <quantidade>'});
+  const m=/^(?:id\s*[-:#]?\s*|#)?(\d{1,9})$/i.exec(a);let t=m?Q1('SELECT id,name FROM users WHERE id=?',+m[1]):null;
+  if(!t)t=Q1('SELECT id,name FROM users WHERE lower(email)=?',a.toLowerCase());if(!t)t=Q1('SELECT id,name FROM users WHERE name=?',a);
+  if(!t)return send(r,404,{error:'Conta não encontrada: '+a.replace(/[<>&]/g,'')});
+  X('INSERT INTO credits(uid,dia,orc,note,at) VALUES(?,?,?,?,?)',t.id,cmd==='diamantes'?qtd:0,cmd==='oricalco'?qtd:0,'dev '+u.name+' (chat)',Date.now());send(r,200,{ok:1,id:t.id,name:t.name})},
+ 'GET /api/me'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{id:'u'+u.id,uid:u.id,name:u.name,dev:!!u.dev,hasEmail:!!u.email})},
  'GET /healthz'(q,r){try{Q1('SELECT 1 x');send(r,200,{ok:1,persist:DBD.persist,s3:{on:S3S.on,ultimoBackup:S3S.ok?new Date(S3S.ok).toISOString():null,backups:S3S.n,erro:S3S.err||null},db:DBD.file,mount:DBD.mount,fstype:DBD.fstype,users:(Q1('SELECT COUNT(*) n FROM users')||{}).n,rooms:ROOMS.size,peers:[...ROOMS.values()].reduce((n,x)=>n+x.peers.size,0)})}catch(e){send(r,500,{ok:0})}}};
 
 // ================= E-MAIL (cadastro / "esqueci a senha") =================
