@@ -73,6 +73,12 @@ function hsStale(uid){const s=Q1('SELECT updated FROM saves WHERE uid=?',uid);re
 function hsVacate(k,uid){X('DELETE FROM houses WHERE k=? AND uid=?',k,uid);const s=Q1('SELECT state FROM saves WHERE uid=?',uid);if(!s)return;try{const st=JSON.parse(s.state);let ch=0;for(const f of ['hs','hn','hl'])if(st[f]&&st[f][k]){delete st[f][k];ch=1}if(st.home&&st.home.k===k){st.home=null;ch=1}if(ch)X('UPDATE saves SET state=? WHERE uid=?',JSON.stringify(st),uid)}catch(e){}}
 function hsSweep(){try{Q('SELECT k,uid FROM houses').forEach(h=>{if(hsStale(h.uid))hsVacate(h.k,h.uid)})}catch(e){}}
 setTimeout(hsSweep,5000);setInterval(hsSweep,36e5);
+db.exec('CREATE TABLE IF NOT EXISTS auc(id INTEGER PRIMARY KEY AUTOINCREMENT,seller INT,sname TEXT,kind TEXT,item TEXT,cur TEXT,mode TEXT,price REAL,t0 INT,end INT,bid REAL DEFAULT 0,bidder INT DEFAULT 0,done INT DEFAULT 0)');
+const AU_CUR=new Set(['orc','gold','cred','dia']),aRound=(c,v)=>c==='cred'?Math.round(v*100)/100:Math.max(1,Math.round(v)),aMin=a=>a.bid?(a.cur==='cred'?Math.round(a.bid*105+1)/100:Math.ceil(a.bid*1.05)):a.price,aOp=(uid,op)=>X('INSERT INTO devops(uid,op,at) VALUES(?,?,?)',uid,JSON.stringify(op),Date.now());
+function aSettle(){try{const now=Date.now();for(const a of Q('SELECT * FROM auc WHERE done=0 AND end<=?',now)){if(!X('UPDATE auc SET done=1 WHERE id=? AND done=0',a.id).changes)continue;let it;try{it=JSON.parse(a.item)}catch(e){continue}
+ if(a.bidder){aOp(a.bidder,{t:'ai',k:a.kind,it,m:'won',g:a.bid,cur:a.cur});aOp(a.seller,{t:'ac',cur:a.cur,n:aRound(a.cur,a.bid*.97),g:a.bid,m:'sold',k:a.kind,it})}else aOp(a.seller,{t:'ai',k:a.kind,it,m:'back'})}
+ X('DELETE FROM auc WHERE done=1 AND end<?',now-864e5)}catch(e){}}
+setTimeout(aSettle,6000);setInterval(aSettle,30000);
 db.exec('CREATE TABLE IF NOT EXISTS devops(id INTEGER PRIMARY KEY,uid INT,op TEXT,at INT,done INT DEFAULT 0)');
 try{db.exec('ALTER TABLE users ADD COLUMN ep INT DEFAULT 0')}catch(e){}
 for(const c of ['gsub TEXT','email TEXT','tsalt TEXT','thash TEXT','texp INT DEFAULT 0','gexp INT DEFAULT 0','pid INT'])try{db.exec('ALTER TABLE users ADD COLUMN '+c)}catch(e){}
@@ -177,6 +183,20 @@ const rtRoutes={
   else{const op=cmd==='levelup'?{t:'lv',n:qtd}:cmd==='gold'?{t:'gold',n:qtd}:cmd==='bau'?{t:'bau',d:arg,n:qtd}:{t:'pj',r:arg,n:qtd};X('INSERT INTO devops(uid,op,at) VALUES(?,?,?)',t.id,JSON.stringify(op),Date.now());}
   send(r,200,{ok:1,id:t.pid||t.id,name:t.name})},
  async 'GET /api/ops'(q,r){const u=user(q);if(!u)return send(r,401,{});const rows=Q('SELECT id,op FROM devops WHERE uid=? AND done=0 ORDER BY id LIMIT 50',u.id);const ops=[];rows.forEach(w=>{try{ops.push(JSON.parse(w.op))}catch(e){}X('UPDATE devops SET done=1 WHERE id=?',w.id)});if(ops.length)X('UPDATE users SET gexp=? WHERE id=?',Date.now()+180000,u.id);send(r,200,{ops})},
+ 'GET /api/auc'(q,r){const u=user(q);if(!u)return send(r,401,{});aSettle();const rows=Q('SELECT * FROM auc WHERE done=0 ORDER BY end LIMIT 150');const list=[];rows.forEach(a=>{try{list.push({id:a.id,sn:a.sname,k:a.kind,it:JSON.parse(a.item),cur:a.cur,mode:a.mode,price:a.price,t0:a.t0,end:a.end,bid:a.bid,me:a.bidder===u.id?1:0,mine:a.seller===u.id?1:0})}catch(e){}});send(r,200,{list,now:Date.now()})},
+ async 'POST /api/auc/new'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),k=b.k==='c'||b.k==='e'?b.k:'',cur=String(b.cur||''),mode=b.mode==='fix'?'fix':'bid',dur=+b.dur===24?24:12;let price=+b.price;
+  if(!k||!AU_CUR.has(cur)||!b.it||typeof b.it!=='object'||!(price>0)||price>1e13)return send(r,400,{error:'Dados inválidos.'});price=aRound(cur,price);const js=JSON.stringify(b.it);if(js.length>30000)return send(r,400,{error:'Item inválido.'});
+  if(Q1('SELECT COUNT(*) c FROM auc WHERE seller=? AND done=0',u.id).c>=10)return send(r,409,{error:'Máximo de 10 leilões abertos.'});
+  const now=Date.now(),id=X('INSERT INTO auc(seller,sname,kind,item,cur,mode,price,t0,end) VALUES(?,?,?,?,?,?,?,?,?)',u.id,String(u.name).replace(/[<>&]/g,'').slice(0,24),k,js,cur,mode,price,now,now+dur*36e5).lastInsertRowid;send(r,200,{ok:1,id:Number(id)})},
+ async 'POST /api/auc/cancel'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),a=Q1('SELECT * FROM auc WHERE id=? AND seller=? AND done=0',Math.trunc(+b.id||0),u.id);if(!a)return send(r,404,{error:'Leilão não encontrado.'});
+  if(Date.now()>a.t0+600000||a.bid)return send(r,409,{error:'Só dá para cancelar nos 10 primeiros minutos e sem lances.'});if(!X('UPDATE auc SET done=1 WHERE id=? AND done=0',a.id).changes)return send(r,409,{});send(r,200,{ok:1,k:a.kind,it:JSON.parse(a.item)})},
+ async 'POST /api/auc/bid'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),a=Q1('SELECT * FROM auc WHERE id=? AND done=0',Math.trunc(+b.id||0));if(!a||Date.now()>=a.end)return send(r,404,{error:'Leilão encerrado.'});
+  if(a.mode!=='bid'||a.seller===u.id)return send(r,400,{error:'Não é possível dar lance.'});const v=aRound(a.cur,+b.v||0);if(!(v>=aMin(a)))return send(r,409,{error:'Lance mínimo: '+aMin(a)+'.',min:aMin(a)});
+  if(a.bidder&&a.bidder!==u.id){let it;try{it=JSON.parse(a.item)}catch(e){}aOp(a.bidder,{t:'ac',cur:a.cur,n:a.bid,m:'out',k:a.kind,it})}
+  const need=aRound(a.cur,v-(a.bidder===u.id?a.bid:0));X('UPDATE auc SET bid=?,bidder=? WHERE id=?',v,u.id,a.id);send(r,200,{ok:1,need,v})},
+ async 'POST /api/auc/buy'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),a=Q1('SELECT * FROM auc WHERE id=? AND done=0',Math.trunc(+b.id||0));if(!a||Date.now()>=a.end)return send(r,404,{error:'Leilão encerrado.'});
+  if(a.mode!=='fix'||a.seller===u.id)return send(r,400,{error:'Não é possível comprar.'});if(!X('UPDATE auc SET done=1 WHERE id=? AND done=0',a.id).changes)return send(r,409,{error:'Já vendido.'});const it=JSON.parse(a.item);
+  aOp(a.seller,{t:'ac',cur:a.cur,n:aRound(a.cur,a.price*.97),g:a.price,m:'sold',k:a.kind,it});send(r,200,{ok:1,k:a.kind,it,price:a.price,cur:a.cur})},
  'GET /api/version'(q,r){let v='0';try{const st=fs.statSync(path.join(PUB,'index.html'));v=st.size.toString(36)+'-'+Math.floor(st.mtimeMs/1000).toString(36)}catch(e){}r.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});r.end(JSON.stringify({v}))},
  async 'POST /api/house/claim'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),k=String(b.k||'');if(!HK_RE.test(k)||/^14:/.test(k))return send(r,400,{error:'Casa inválida.'});
   const row=Q1('SELECT h.uid,u.name FROM houses h JOIN users u ON u.id=h.uid WHERE h.k=?',k);
