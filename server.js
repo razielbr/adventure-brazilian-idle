@@ -67,12 +67,12 @@ CREATE TABLE IF NOT EXISTS wday(uid INT,day INT,dia INT DEFAULT 0,orc INT DEFAUL
 CREATE TABLE IF NOT EXISTS credits(id INTEGER PRIMARY KEY,uid INT,dia INT,orc INT,note TEXT,at INT,applied INT DEFAULT 0);`);
 try{db.exec('ALTER TABLE saves ADD COLUMN dia INT DEFAULT 0')}catch(e){}
 try{db.exec('ALTER TABLE saves ADD COLUMN prof TEXT')}catch(e){}try{db.exec('ALTER TABLE saves ADD COLUMN plv INT DEFAULT 0')}catch(e){}
-db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY,v TEXT)');
+db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY,v TEXT)');db.exec('CREATE TABLE IF NOT EXISTS devops(id INTEGER PRIMARY KEY,uid INT,op TEXT,at INT,done INT DEFAULT 0)');
 try{db.exec('ALTER TABLE users ADD COLUMN ep INT DEFAULT 0')}catch(e){}
-for(const c of ['gsub TEXT','email TEXT','tsalt TEXT','thash TEXT','texp INT DEFAULT 0'])try{db.exec('ALTER TABLE users ADD COLUMN '+c)}catch(e){}
+for(const c of ['gsub TEXT','email TEXT','tsalt TEXT','thash TEXT','texp INT DEFAULT 0','gexp INT DEFAULT 0'])try{db.exec('ALTER TABLE users ADD COLUMN '+c)}catch(e){}
 try{db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_gsub ON users(gsub) WHERE gsub IS NOT NULL')}catch(e){}
 try{db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(lower(email)) WHERE email IS NOT NULL')}catch(e){}
-(process.env.DEV_USERS||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(n=>{try{X('UPDATE users SET dev=1 WHERE name=?',n)}catch(e){}});
+(process.env.DEV_USERS||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(n=>{try{X('UPDATE users SET dev=1 WHERE name=? OR lower(email)=lower(?)',n,n)}catch(e){}});
 const getEpoch=()=>(Q1("SELECT v FROM meta WHERE k='epoch'")||{v:'0'}).v;
 const epochOf=u=>getEpoch()+(u&&u.ep?'.'+u.ep:'');
 db.exec('CREATE TABLE IF NOT EXISTS profiles(uid INTEGER PRIMARY KEY,pn TEXT,av TEXT,bn TEXT,vip INT DEFAULT 0)');try{db.exec('ALTER TABLE profiles ADD COLUMN tt INT DEFAULT -1')}catch(e){}try{db.exec('ALTER TABLE profiles ADD COLUMN alv INT DEFAULT 0')}catch(e){}try{db.exec('ALTER TABLE profiles ADD COLUMN fw INT DEFAULT 4')}catch(e){}['nc','fc','ff','fg','fs','fi','fc2','fc3','fm'].forEach(c=>{try{db.exec('ALTER TABLE profiles ADD COLUMN '+c+' TEXT')}catch(e){}});const FG_OK=new Set(['on','anim','off']),FS_OK=new Set(['solid','double','dotted','dashed','ridge']),FI_RE=/^data:image\/(png|webp|gif);base64,[A-Za-z0-9+\/=]+$/,FF_OK=new Set(['impact','comic','mono','script','serif']),COL_RE=/^#[0-9a-fA-F]{6}$/;
@@ -154,12 +154,18 @@ const rtRoutes={
   let base=String(t.name||em.split('@')[0]).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w.-]+/g,'').slice(0,14)||'jogador',n=base;for(let i=0;i<50&&(n.length<3||Q1('SELECT 1 FROM users WHERE name=?',n));i++)n=base+Math.floor(Math.random()*9000+1000);
   const salt=crypto.randomBytes(16).toString('hex'),hash=crypto.scryptSync(crypto.randomBytes(24).toString('hex'),salt,64).toString('hex');
   const id=X('INSERT INTO users(name,salt,hash,created,email,gsub) VALUES(?,?,?,?,?,?)',n,salt,hash,Date.now(),em,t.sub).lastInsertRowid;send(r,200,{token:login(id),user:n,novo:1})},
- async 'POST /api/devcmd'(q,r){const u=user(q);if(!u||!u.dev)return send(r,403,{error:'Só conta DEV.'});const b=await body(q);const cmd=String(b.cmd||'').toLowerCase(),qtd=Math.trunc(+b.qtd||0);let a=String(b.alvo||'').trim().slice(0,200);
-  if(!['diamantes','oricalco'].includes(cmd)||!qtd||Math.abs(qtd)>1e7)return send(r,400,{error:'Use: @Diamantes <email, ID ou nome> <quantidade>'});
-  const m=/^(?:id\s*[-:#]?\s*|#)?(\d{1,9})$/i.exec(a);let t=m?Q1('SELECT id,name FROM users WHERE id=?',+m[1]):null;
-  if(!t)t=Q1('SELECT id,name FROM users WHERE lower(email)=?',a.toLowerCase());if(!t)t=Q1('SELECT id,name FROM users WHERE name=?',a);
+ async 'POST /api/devcmd'(q,r){const u=user(q);if(!u||!u.dev)return send(r,403,{error:'Só conta DEV.'});const b=await body(q);const cmd=String(b.cmd||'').toLowerCase(),qtd=Math.trunc(+b.qtd||0),arg=Math.trunc(+b.arg||0);let a=String(b.alvo||'').trim().slice(0,200);
+  if(!['diamantes','oricalco','levelup','gold','bau','personagem'].includes(cmd)||!qtd)return send(r,400,{error:'Comando inválido.'});
+  const lim={diamantes:1e7,oricalco:1e6,levelup:300,gold:1e13,bau:1e6,personagem:50}[cmd];if(Math.abs(qtd)>lim||(['levelup','personagem'].includes(cmd)&&qtd<1))return send(r,400,{error:'Valor fora do limite (máx '+lim+').'});
+  if((cmd==='bau'||cmd==='personagem')&&(arg<0||arg>5))return send(r,400,{error:'Opção inválida.'});
+  let t;if(!a)t={id:u.id,name:u.name};else{const m=/^(?:id\s*[-:#]?\s*|#)?(\d{1,9})$/i.exec(a);t=m?Q1('SELECT id,name FROM users WHERE id=?',+m[1]):null;
+  if(!t)t=Q1('SELECT id,name FROM users WHERE lower(email)=?',a.toLowerCase());if(!t)t=Q1('SELECT id,name FROM users WHERE name=?',a)}
   if(!t)return send(r,404,{error:'Conta não encontrada: '+a.replace(/[<>&]/g,'')});
-  X('INSERT INTO credits(uid,dia,orc,note,at) VALUES(?,?,?,?,?)',t.id,cmd==='diamantes'?qtd:0,cmd==='oricalco'?qtd:0,'dev '+u.name+' (chat)',Date.now());send(r,200,{ok:1,id:t.id,name:t.name})},
+  const note='dev '+u.name+' (chat) '+cmd;
+  if(cmd==='diamantes'||cmd==='oricalco')X('INSERT INTO credits(uid,dia,orc,note,at) VALUES(?,?,?,?,?)',t.id,cmd==='diamantes'?qtd:0,cmd==='oricalco'?qtd:0,note,Date.now());
+  else{const op=cmd==='levelup'?{t:'lv',n:qtd}:cmd==='gold'?{t:'gold',n:qtd}:cmd==='bau'?{t:'bau',d:arg,n:qtd}:{t:'pj',r:arg,n:qtd};X('INSERT INTO devops(uid,op,at) VALUES(?,?,?)',t.id,JSON.stringify(op),Date.now());}
+  send(r,200,{ok:1,id:t.id,name:t.name})},
+ async 'GET /api/ops'(q,r){const u=user(q);if(!u)return send(r,401,{});const rows=Q('SELECT id,op FROM devops WHERE uid=? AND done=0 ORDER BY id LIMIT 50',u.id);const ops=[];rows.forEach(w=>{try{ops.push(JSON.parse(w.op))}catch(e){}X('UPDATE devops SET done=1 WHERE id=?',w.id)});if(ops.length)X('UPDATE users SET gexp=? WHERE id=?',Date.now()+180000,u.id);send(r,200,{ops})},
  'GET /api/me'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{id:'u'+u.id,uid:u.id,name:u.name,dev:!!u.dev,hasEmail:!!u.email})},
  'GET /healthz'(q,r){try{Q1('SELECT 1 x');send(r,200,{ok:1,persist:DBD.persist,s3:{on:S3S.on,ultimoBackup:S3S.ok?new Date(S3S.ok).toISOString():null,backups:S3S.n,erro:S3S.err||null},db:DBD.file,mount:DBD.mount,fstype:DBD.fstype,users:(Q1('SELECT COUNT(*) n FROM users')||{}).n,rooms:ROOMS.size,peers:[...ROOMS.values()].reduce((n,x)=>n+x.peers.size,0)})}catch(e){send(r,500,{ok:0})}}};
 
@@ -209,7 +215,7 @@ async 'GET /api/save'(q,r){const u=user(q);if(!u)return send(r,401,{});const s=Q
 async 'PUT /api/save'(q,r){const u=user(q);if(!u)return send(r,401,{});if(u.locked&&!u.dev)return send(r,423,{locked:1});const ep0=epochOf(u);if(!(getEpoch()==='0'&&!u.ep)&&String(q.headers['x-epoch']||'')!==ep0)return send(r,409,{reset:1,epoch:ep0});const b=await body(q);const st=b.state;
  if(!st||typeof st!=='object')return send(r,400,{});const prev=Q1('SELECT * FROM saves WHERE uid=?',u.id),now=Date.now();
  if(prev&&now-prev.updated<LIM.minGapMs)return send(r,429,{error:'Devagar.'});
- const strip=idGuard(u.id,st,prev,now);const s=summarize(st);const lk=check(u.id,s,prev,now);if(!u.dev&&(lk||st.lock)){X('UPDATE users SET locked=1 WHERE id=?',u.id);return send(r,423,{locked:1})}
+ const strip=idGuard(u.id,st,prev,now);const s=summarize(st);const lk=((u.gexp|0)>now)?(check(u.id,{...s,maxLv:0,sumLv:0,chars:0,orc:0},prev&&{...prev,maxLv:0,sumLv:0,chars:0,orc:0},now),false):check(u.id,s,prev,now);if(!u.dev&&(lk||st.lock)){X('UPDATE users SET locked=1 WHERE id=?',u.id);return send(r,423,{locked:1})}
  if(!u.dev){st.profLock=true;try{const pv0=prev&&JSON.parse(prev.state);if(pv0&&pv0.prof&&st.prof!==pv0.prof)st.prof=pv0.prof}catch(e){}}
  const cut=u.dev?false:walletGuard(u.id,st,prev,now);const cr=applyCredits(u.id,st);const s2=summarize(st);
  X('INSERT OR REPLACE INTO saves(uid,state,maxLv,sumLv,chars,gold,orc,stage,updated,dia) VALUES(?,?,?,?,?,?,?,?,?,?)',u.id,JSON.stringify(st),s2.maxLv,s2.sumLv,s2.chars,s2.gold,s2.orc,s2.stage,now,st.dia|0);{const pr=['Ferreiro','Joalheiro','Alquimista'].includes(st.prof)?st.prof:null;X('UPDATE saves SET prof=?,plv=? WHERE uid=?',pr,pr?Math.floor((((st.pxp||{})[pr])|0)/10):0,u.id)}snap(u.id,st,now);try{saveProfile(u.id,st,now)}catch(e){}
