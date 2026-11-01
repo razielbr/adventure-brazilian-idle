@@ -36,7 +36,7 @@ const send=(r,c,o)=>{r.writeHead(c,{'content-type':'application/json'});r.end(JS
 const body=req=>new Promise((ok,no)=>{let b='';req.on('data',d=>{b+=d;if(b.length>5e6){no(0);req.destroy()}});req.on('end',()=>{try{ok(JSON.parse(b||'{}'))}catch(e){no(0)}})});
 const hit={};const limited=(k,n,ms)=>{const t=Date.now(),a=(hit[k]=(hit[k]||[]).filter(x=>t-x<ms));a.push(t);return a.length>n};
 const DEVN=new Set((process.env.DEV_USERS||'').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean));
-const user=req=>{const t=(req.headers.authorization||'').replace('Bearer ','');const s=t&&Q1('SELECT uid FROM sessions WHERE th=?',sha(t));const u=s&&Q1('SELECT * FROM users WHERE id=? AND banned=0',s.uid);if(u&&!u.dev&&DEVN.has(String(u.name).toLowerCase())){X('UPDATE users SET dev=1 WHERE id=?',u.id);u.dev=1}return u};
+const user=req=>{const t=(req.headers.authorization||'').replace('Bearer ','');const s=t&&Q1('SELECT uid FROM sessions WHERE th=?',sha(t));const u=s&&Q1('SELECT * FROM users WHERE id=? AND banned=0',s.uid);if(u&&!u.dev&&(DEVN.has(String(u.name).toLowerCase())||(u.email&&DEVN.has(String(u.email).toLowerCase())))){X('UPDATE users SET dev=1 WHERE id=?',u.id);u.dev=1}if(u&&!u.pid)ensurePid(u);return u};
 const isAdmin=req=>{const a=Buffer.from(req.headers['x-admin']||''),b=Buffer.from(ADMIN);return a.length===b.length&&crypto.timingSafeEqual(a,b)};
 function login(uid){const t=crypto.randomBytes(32).toString('hex');X('INSERT INTO sessions VALUES(?,?,?)',sha(t),uid,Date.now());return t}
 function summarize(st){const ch=Array.isArray(st.chars)?st.chars:[];return{maxLv:ch.reduce((m,c)=>Math.max(m,c.lv|0),0),sumLv:ch.reduce((m,c)=>m+(c.lv|0),0),chars:ch.length,gold:st.gold|0,orc:st.orc|0,stage:st.stage|0}}
@@ -69,8 +69,12 @@ try{db.exec('ALTER TABLE saves ADD COLUMN dia INT DEFAULT 0')}catch(e){}
 try{db.exec('ALTER TABLE saves ADD COLUMN prof TEXT')}catch(e){}try{db.exec('ALTER TABLE saves ADD COLUMN plv INT DEFAULT 0')}catch(e){}
 db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY,v TEXT)');db.exec('CREATE TABLE IF NOT EXISTS devops(id INTEGER PRIMARY KEY,uid INT,op TEXT,at INT,done INT DEFAULT 0)');
 try{db.exec('ALTER TABLE users ADD COLUMN ep INT DEFAULT 0')}catch(e){}
-for(const c of ['gsub TEXT','email TEXT','tsalt TEXT','thash TEXT','texp INT DEFAULT 0','gexp INT DEFAULT 0'])try{db.exec('ALTER TABLE users ADD COLUMN '+c)}catch(e){}
+for(const c of ['gsub TEXT','email TEXT','tsalt TEXT','thash TEXT','texp INT DEFAULT 0','gexp INT DEFAULT 0','pid INT'])try{db.exec('ALTER TABLE users ADD COLUMN '+c)}catch(e){}
 try{db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_gsub ON users(gsub) WHERE gsub IS NOT NULL')}catch(e){}
+try{db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_pid ON users(pid) WHERE pid IS NOT NULL')}catch(e){}
+function genPid(){for(let i=0;i<50;i++){const p=crypto.randomInt(1e9,1e10);if(!Q1('SELECT 1 FROM users WHERE pid=?',p))return p}return null}
+function ensurePid(u){if(u&&!u.pid){const p=genPid();if(p){X('UPDATE users SET pid=? WHERE id=?',p,u.id);u.pid=p}}return u}
+try{Q('SELECT id,pid FROM users WHERE pid IS NULL').forEach(ensurePid)}catch(e){}
 try{db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(lower(email)) WHERE email IS NOT NULL')}catch(e){}
 (process.env.DEV_USERS||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(n=>{try{X('UPDATE users SET dev=1 WHERE name=? OR lower(email)=lower(?)',n,n)}catch(e){}});
 const getEpoch=()=>(Q1("SELECT v FROM meta WHERE k='epoch'")||{v:'0'}).v;
@@ -158,15 +162,15 @@ const rtRoutes={
   if(!['diamantes','oricalco','levelup','gold','bau','personagem'].includes(cmd)||!qtd)return send(r,400,{error:'Comando inválido.'});
   const lim={diamantes:1e7,oricalco:1e6,levelup:300,gold:1e13,bau:1e6,personagem:50}[cmd];if(Math.abs(qtd)>lim||(['levelup','personagem'].includes(cmd)&&qtd<1))return send(r,400,{error:'Valor fora do limite (máx '+lim+').'});
   if((cmd==='bau'||cmd==='personagem')&&(arg<0||arg>5))return send(r,400,{error:'Opção inválida.'});
-  let t;if(!a)t={id:u.id,name:u.name};else{const m=/^(?:id\s*[-:#]?\s*|#)?(\d{1,9})$/i.exec(a);t=m?Q1('SELECT id,name FROM users WHERE id=?',+m[1]):null;
-  if(!t)t=Q1('SELECT id,name FROM users WHERE lower(email)=?',a.toLowerCase());if(!t)t=Q1('SELECT id,name FROM users WHERE name=?',a)}
+  let t;if(!a)t={id:u.id,name:u.name,pid:u.pid};else{const m=/^(?:id\s*[-:#]?\s*|#)?(\d{1,10})$/i.exec(a);t=m?(m[1].length===10?Q1('SELECT id,name,pid FROM users WHERE pid=?',+m[1]):Q1('SELECT id,name,pid FROM users WHERE id=?',+m[1])):null;
+  if(!t)t=Q1('SELECT id,name,pid FROM users WHERE lower(email)=?',a.toLowerCase());if(!t)t=Q1('SELECT id,name,pid FROM users WHERE name=?',a)}
   if(!t)return send(r,404,{error:'Conta não encontrada: '+a.replace(/[<>&]/g,'')});
   const note='dev '+u.name+' (chat) '+cmd;
   if(cmd==='diamantes'||cmd==='oricalco')X('INSERT INTO credits(uid,dia,orc,note,at) VALUES(?,?,?,?,?)',t.id,cmd==='diamantes'?qtd:0,cmd==='oricalco'?qtd:0,note,Date.now());
   else{const op=cmd==='levelup'?{t:'lv',n:qtd}:cmd==='gold'?{t:'gold',n:qtd}:cmd==='bau'?{t:'bau',d:arg,n:qtd}:{t:'pj',r:arg,n:qtd};X('INSERT INTO devops(uid,op,at) VALUES(?,?,?)',t.id,JSON.stringify(op),Date.now());}
-  send(r,200,{ok:1,id:t.id,name:t.name})},
+  send(r,200,{ok:1,id:t.pid||t.id,name:t.name})},
  async 'GET /api/ops'(q,r){const u=user(q);if(!u)return send(r,401,{});const rows=Q('SELECT id,op FROM devops WHERE uid=? AND done=0 ORDER BY id LIMIT 50',u.id);const ops=[];rows.forEach(w=>{try{ops.push(JSON.parse(w.op))}catch(e){}X('UPDATE devops SET done=1 WHERE id=?',w.id)});if(ops.length)X('UPDATE users SET gexp=? WHERE id=?',Date.now()+180000,u.id);send(r,200,{ops})},
- 'GET /api/me'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{id:'u'+u.id,uid:u.id,name:u.name,dev:!!u.dev,hasEmail:!!u.email})},
+ 'GET /api/me'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{id:'u'+u.id,uid:u.pid,name:u.name,dev:!!u.dev,hasEmail:!!u.email})},
  'GET /healthz'(q,r){try{Q1('SELECT 1 x');send(r,200,{ok:1,persist:DBD.persist,s3:{on:S3S.on,ultimoBackup:S3S.ok?new Date(S3S.ok).toISOString():null,backups:S3S.n,erro:S3S.err||null},db:DBD.file,mount:DBD.mount,fstype:DBD.fstype,users:(Q1('SELECT COUNT(*) n FROM users')||{}).n,rooms:ROOMS.size,peers:[...ROOMS.values()].reduce((n,x)=>n+x.peers.size,0)})}catch(e){send(r,500,{ok:0})}}};
 
 // ================= E-MAIL (cadastro / "esqueci a senha") =================
@@ -224,7 +228,7 @@ async 'POST /api/announce'(q,r){const u=user(q);if(!u)return send(r,401,{});cons
 async 'GET /api/announces'(q,r){const u=user(q);if(!u)return send(r,401,{});const url=new URL(q.url,'http://x'),since=+url.searchParams.get('since')||0;const rows=Q('SELECT id,uid,name,txt,k FROM announces WHERE id>? AND at>? ORDER BY id LIMIT 20',since,Date.now()-120000);send(r,200,{rows:rows.filter(x=>x.uid!==u.id),last:Q1('SELECT MAX(id) m FROM announces').m||0})},
 async 'GET /api/ranking'(q,r){send(r,200,Q('SELECT u.name,s.maxLv,s.stage,s.chars FROM saves s JOIN users u ON u.id=s.uid WHERE u.banned=0 AND u.dev=0 ORDER BY s.maxLv DESC LIMIT 100'))},
 // ---- admin (header x-admin). Nunca devolve senha: só existe hash+salt no banco.
-async 'GET /api/admin/users'(q,r){if(!isAdmin(q))return send(r,403,{});send(r,200,Q('SELECT u.id,u.name,u.email,u.created,u.banned,u.locked,u.dev,s.maxLv,s.chars,s.gold,s.orc,s.dia,s.stage,s.updated FROM users u LEFT JOIN saves s ON s.uid=u.id ORDER BY s.maxLv DESC'))},
+async 'GET /api/admin/users'(q,r){if(!isAdmin(q))return send(r,403,{});send(r,200,Q('SELECT u.id,u.pid,u.name,u.email,u.created,u.banned,u.locked,u.dev,s.maxLv,s.chars,s.gold,s.orc,s.dia,s.stage,s.updated FROM users u LEFT JOIN saves s ON s.uid=u.id ORDER BY s.maxLv DESC'))},
 async 'GET /api/admin/inventory'(q,r,url){if(!isAdmin(q))return send(r,403,{});const s=Q1('SELECT state FROM saves WHERE uid=?',+url.searchParams.get('id'));send(r,200,s?JSON.parse(s.state):null)},
 async 'GET /api/admin/item'(q,r,url){if(!isAdmin(q))return send(r,403,{});const x=String(url.searchParams.get('uid')||'').toLowerCase().replace(/^\s*id[-\s]?/,'').replace(/[^0-9a-f]/g,'');const row=Q1('SELECT i.*,u.name FROM ids i LEFT JOIN users u ON u.id=i.owner WHERE i.uid=?',x);send(r,200,row||{error:'ID não encontrado'})},
 async 'GET /api/admin/alerts'(q,r){if(!isAdmin(q))return send(r,403,{});send(r,200,Q('SELECT a.id,a.msg,a.at,u.name,u.id uid FROM alerts a JOIN users u ON u.id=a.uid WHERE a.cleared=0 ORDER BY a.at DESC LIMIT 200'))},
@@ -247,10 +251,10 @@ async 'POST /api/admin/wipe'(q,r){if(!isAdmin(q))return send(r,403,{});const b=a
   X('UPDATE users SET ep=COALESCE(ep,0)+1,locked=0 WHERE id=?',x.uid);n++});
  send(r,200,{ok:1,n})},
 async 'GET /api/profile'(q,r,url){const u=user(q);if(!u)return send(r,401,{});const id=+url.searchParams.get('id')||0,nm=String(url.searchParams.get('name')||'').trim().slice(0,30);
- const row=id?Q1('SELECT u.id,u.name FROM users u WHERE u.id=? AND u.banned=0',id):(nm?Q1('SELECT u.id,u.name FROM users u LEFT JOIN profiles p ON p.uid=u.id WHERE u.banned=0 AND (u.name=? COLLATE NOCASE OR p.pn=? COLLATE NOCASE) LIMIT 1',nm,nm):null);
+ const row=id?Q1('SELECT u.id,u.name,u.pid FROM users u WHERE (u.id=? OR u.pid=?) AND u.banned=0',id,id):(nm?Q1('SELECT u.id,u.name,u.pid FROM users u LEFT JOIN profiles p ON p.uid=u.id WHERE u.banned=0 AND (u.name=? COLLATE NOCASE OR p.pn=? COLLATE NOCASE) LIMIT 1',nm,nm):null);
  if(!row)return send(r,404,{error:'Jogador não encontrado.'});
  const p=Q1('SELECT * FROM profiles WHERE uid=?',row.id)||{},s=Q1('SELECT maxLv,sumLv,chars,stage,prof,plv FROM saves WHERE uid=?',row.id)||{};
- send(r,200,{id:row.id,n:p.pn||row.name,av:p.av||'',bn:p.bn||'',vip:p.vip?1:0,tt:Number.isInteger(p.tt)?p.tt:-1,alv:p.alv|0,nc:p.vip?(p.nc||''):'',fc:p.vip?(p.fc||''):'',ff:p.vip?(p.ff||''):'',fg:p.vip?(p.fg||''):'',fs:p.vip?(p.fs||''):'',fw:p.vip?(p.fw|0):4,fi:p.vip?(p.fi||''):'',fc2:p.vip?(p.fc2||''):'',fc3:p.vip?(p.fc3||''):'',fm:p.vip?(p.fm||''):'',maxLv:s.maxLv|0,chars:s.chars|0,stage:s.stage|0,prof:s.prof||'',plv:s.plv|0})},
+ send(r,200,{id:row.pid||row.id,n:p.pn||row.name,av:p.av||'',bn:p.bn||'',vip:p.vip?1:0,tt:Number.isInteger(p.tt)?p.tt:-1,alv:p.alv|0,nc:p.vip?(p.nc||''):'',fc:p.vip?(p.fc||''):'',ff:p.vip?(p.ff||''):'',fg:p.vip?(p.fg||''):'',fs:p.vip?(p.fs||''):'',fw:p.vip?(p.fw|0):4,fi:p.vip?(p.fi||''):'',fc2:p.vip?(p.fc2||''):'',fc3:p.vip?(p.fc3||''):'',fm:p.vip?(p.fm||''):'',maxLv:s.maxLv|0,chars:s.chars|0,stage:s.stage|0,prof:s.prof||'',plv:s.plv|0})},
 async 'GET /api/profrank'(q,r){const u=user(q);if(!u)return send(r,401,{});const o={};['Ferreiro','Joalheiro','Alquimista'].forEach(p=>{o[p]=Q('SELECT COALESCE(p.pn,u.name) n,u.id id,s.plv v,u.id=? me FROM saves s JOIN users u ON u.id=s.uid LEFT JOIN profiles p ON p.uid=u.id WHERE s.prof=? AND u.banned=0 AND u.dev=0 ORDER BY s.plv DESC LIMIT 20',u.id,p).map(x=>({n:x.n,id:x.id,v:x.v,me:!!x.me}))});send(r,200,o)},
 async 'POST /api/admin/credit'(q,r){if(!isAdmin(q))return send(r,403,{});const b=await body(q);const id=+b.id,dia=Math.trunc(+b.dia||0),orc=Math.trunc(+b.orc||0);
  if(!id||!Q1('SELECT 1 FROM users WHERE id=?',id)||(!dia&&!orc)||Math.abs(dia)>1e7||Math.abs(orc)>1e6)return send(r,400,{error:'dados inválidos'});
