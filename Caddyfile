@@ -1,0 +1,6 @@
+{$DOMINIO} {
+	encode gzip
+	reverse_proxy jogo:3000 {
+		flush_interval -1
+	}
+}

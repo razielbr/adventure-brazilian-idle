@@ -1,0 +1,24 @@
+# HTTPS automático com Caddy. Uso:  cp .env.example .env  (edite)  &&  docker compose up -d --build
+services:
+  jogo:
+    build: .
+    restart: unless-stopped
+    environment:
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?defina no .env}
+      DEV_USERS: ${DEV_USERS:-}
+      TRUST_PROXY: "1"
+    volumes:
+      - dados:/data
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMINIO: ${DOMINIO:?defina no .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [jogo]
+volumes:
+  dados:
+  caddy_data:

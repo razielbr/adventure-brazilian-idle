@@ -1,0 +1,4 @@
+jogo.db*
+backups
+node_modules
+.env

@@ -1,0 +1,25 @@
+# Fly.io: fly launch --no-deploy --copy-config ; fly volumes create dados --size 1 ; fly secrets set ADMIN_TOKEN=... ; fly deploy
+app = "adventure-brazilian-idle"
+primary_region = "gru"
+
+[build]
+
+[env]
+  PORT = "3000"
+  DB = "/data/jogo.db"
+  TRUST_PROXY = "1"
+
+[mounts]
+  source = "dados"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  [[http_service.checks]]
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"

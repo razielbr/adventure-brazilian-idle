@@ -1,0 +1,18 @@
+# Render.com (Blueprint). Precisa de plano com disco persistente (para o SQLite).
+services:
+  - type: web
+    name: adventure-brazilian-idle
+    runtime: docker
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: DEV_USERS
+        sync: false
+      - key: TRUST_PROXY
+        value: "1"
+    disk:
+      name: dados
+      mountPath: /data
+      sizeGB: 1

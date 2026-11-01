@@ -1,0 +1,9 @@
+{
+  "name": "adventure-brazilian-idle-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Servidor do Adventure Brazilian IDLE (login, save na nuvem, lobby online)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=22" }
+}
