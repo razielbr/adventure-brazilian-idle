@@ -54,6 +54,8 @@ try{db.exec('ALTER TABLE saves ADD COLUMN dia INT DEFAULT 0')}catch(e){}
 try{db.exec('ALTER TABLE saves ADD COLUMN prof TEXT')}catch(e){}try{db.exec('ALTER TABLE saves ADD COLUMN plv INT DEFAULT 0')}catch(e){}
 db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY,v TEXT)');
 try{db.exec('ALTER TABLE users ADD COLUMN ep INT DEFAULT 0')}catch(e){}
+for(const c of ['email TEXT','tsalt TEXT','thash TEXT','texp INT DEFAULT 0'])try{db.exec('ALTER TABLE users ADD COLUMN '+c)}catch(e){}
+try{db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(lower(email)) WHERE email IS NOT NULL')}catch(e){}
 (process.env.DEV_USERS||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(n=>{try{X('UPDATE users SET dev=1 WHERE name=?',n)}catch(e){}});
 const getEpoch=()=>(Q1("SELECT v FROM meta WHERE k='epoch'")||{v:'0'}).v;
 const epochOf=u=>getEpoch()+(u&&u.ep?'.'+u.ep:'');
@@ -116,20 +118,57 @@ const rtRoutes={
   const rows=Q(`SELECT COALESCE(p.pn,u.name) n,u.id id,COALESCE(json_extract(s.state,'$.pdl'),0) pdl,COALESCE(json_extract(s.state,'$.pdlE'),0) pe,COALESCE(json_extract(s.state,'$.phs'),0) phs,COALESCE(json_extract(s.state,'$.x1.k'),0) k,COALESCE(json_extract(s.state,'$.x1.d'),0) d FROM saves s JOIN users u ON u.id=s.uid LEFT JOIN profiles p ON p.uid=u.id WHERE u.banned=0 ORDER BY s.updated DESC LIMIT 2000`);
   const top=(f,n)=>rows.filter(x=>f(x)>0).sort((a,b)=>f(b)-f(a)).slice(0,n),m=x=>x.id===u.id;
   send(r,200,{pdl:top(x=>x.pdl|0,100).map(x=>({n:x.n,v:x.pdl|0,me:m(x)})),pve:top(x=>(x.phs|0)||(x.pe|0),100).map(x=>({n:x.n,p:x.pe|0,v:x.phs|0,me:m(x)})),x1:top(x=>x.k|0,100).map(x=>({n:x.n,k:x.k|0,d:x.d|0,me:m(x)}))})},
- 'GET /api/me'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{id:'u'+u.id,name:u.name,dev:!!u.dev})},
+ async 'POST /api/forgot'(q,r){const b=await body(q);const id=String(b.id||b.email||b.user||'').trim().slice(0,200);const ok=()=>send(r,200,{ok:1,msg:'Se a conta existir, enviamos uma senha nova para o e-mail cadastrado. Confira também o spam.'});
+  if(!id)return send(r,400,{error:'Digite seu e-mail ou usuário.'});if(!mailOn())return send(r,503,{error:'Recuperação por e-mail ainda não está configurada neste servidor.'});
+  if(limited('fg'+ipOf(q),5,3600e3)||limited('fgi'+id.toLowerCase(),3,3600e3))return send(r,429,{error:'Muitos pedidos. Tente de novo em 1 hora.'});
+  const u=Q1('SELECT * FROM users WHERE banned=0 AND (lower(email)=? OR name=?)',id.toLowerCase(),id);if(!u||!u.email)return ok();
+  const pw=genPass(),salt=crypto.randomBytes(16).toString('hex');X('UPDATE users SET tsalt=?,thash=?,texp=? WHERE id=?',salt,crypto.scryptSync(pw,salt,64).toString('hex'),Date.now()+30*60e3,u.id);
+  try{await sendMail(u.email,'Sua senha temporária - Adventure Brazilian IDLE',`Olá, ${u.name}!\n\nUsuário: ${u.name}\nSenha temporária: ${pw}\n\nEla vale por 30 minutos e passa a ser a sua senha assim que você entrar. Sua senha antiga continua funcionando até lá.\nSe não foi você que pediu, ignore este e-mail.\n`)}catch(e){console.error('e-mail falhou:',e.message);return send(r,502,{error:'Não consegui enviar o e-mail agora. Tente mais tarde.'})}
+  ok()},
+ async 'POST /api/email'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),em=String(b.email||'').trim().toLowerCase();if(!EMAIL_RE.test(em))return send(r,400,{error:'E-mail inválido.'});
+  if(u.email&&!pwOk(u,b.pass))return send(r,403,{error:'Senha atual incorreta.'});if(Q1('SELECT 1 FROM users WHERE lower(email)=? AND id<>?',em,u.id))return send(r,409,{error:'Este e-mail já está em uso.'});
+  X('UPDATE users SET email=? WHERE id=?',em,u.id);send(r,200,{ok:1})},
+ 'GET /api/me'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{id:'u'+u.id,name:u.name,dev:!!u.dev,hasEmail:!!u.email})},
  'GET /healthz'(q,r){try{Q1('SELECT 1 x');send(r,200,{ok:1,rooms:ROOMS.size,peers:[...ROOMS.values()].reduce((n,x)=>n+x.peers.size,0)})}catch(e){send(r,500,{ok:0})}}};
+
+// ================= E-MAIL (cadastro / "esqueci a senha") =================
+// Opção A (mais simples): RESEND_API_KEY + MAIL_FROM  (resend.com, plano grátis)
+// Opção B: SMTP com TLS direto (porta 465): SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_FROM  (Gmail com "senha de app", Brevo, Zoho…)
+const tlsM=require('node:tls');
+const MAIL_FROM=process.env.MAIL_FROM||process.env.SMTP_USER||'';
+const mailOn=()=>!!(process.env.RESEND_API_KEY&&MAIL_FROM)||!!(process.env.SMTP_HOST&&process.env.SMTP_USER&&process.env.SMTP_PASS);
+const EMAIL_RE=/^[^\s@<>()",;:]{1,64}@[^\s@<>()",;:]{1,190}\.[A-Za-z]{2,24}$/;
+const B64=t=>Buffer.from(t,'utf8').toString('base64'),mimeSubj=t=>'=?UTF-8?B?'+B64(t)+'?=';
+const fromAddr=()=>(MAIL_FROM.match(/<([^>]+)>/)||[0,MAIL_FROM])[1].trim();
+async function sendMail(to,subject,text){
+ if(process.env.RESEND_API_KEY&&MAIL_FROM){const r=await fetch(process.env.RESEND_URL||'https://api.resend.com/emails',{method:'POST',headers:{authorization:'Bearer '+process.env.RESEND_API_KEY,'content-type':'application/json'},body:JSON.stringify({from:MAIL_FROM,to:[to],subject,text})});if(!r.ok)throw new Error('resend '+r.status+' '+(await r.text()).slice(0,200));return}
+ const host=process.env.SMTP_HOST,port=+process.env.SMTP_PORT||465;
+ await new Promise((ok,no)=>{const s=tlsM.connect({host,port,servername:host,rejectUnauthorized:process.env.SMTP_INSECURE!=='1'});s.setTimeout(20000,()=>{s.destroy();no(new Error('smtp timeout'))});s.on('error',no);
+  let buf='',wake=null;s.on('data',d=>{buf+=d;if(wake)wake()});
+  const read=()=>new Promise(res=>{const chk=()=>{const L=buf.split('\r\n');if(L.length>1&&/^\d{3} /.test(L[L.length-2]||'')){const c=+L[L.length-2].slice(0,3);buf='';wake=null;res(c)}};wake=chk;chk()});
+  const cmd=async(l,exp)=>{if(l!==null)s.write(l+'\r\n');const c=await read();if(c!==exp)throw new Error('smtp '+c+' após '+String(l).slice(0,12))};
+  (async()=>{await cmd(null,220);await cmd('EHLO jogo',250);await cmd('AUTH LOGIN',334);await cmd(B64(process.env.SMTP_USER),334);await cmd(B64(process.env.SMTP_PASS),235);
+   await cmd('MAIL FROM:<'+fromAddr()+'>',250);await cmd('RCPT TO:<'+to+'>',250);await cmd('DATA',354);
+   const msg=['From: '+MAIL_FROM,'To: '+to,'Subject: '+mimeSubj(subject),'Date: '+new Date().toUTCString(),'MIME-Version: 1.0','Content-Type: text/plain; charset=utf-8','Content-Transfer-Encoding: base64','',(B64(text).match(/.{1,76}/g)||[]).join('\r\n'),'.'].join('\r\n');
+   await cmd(msg,250);s.write('QUIT\r\n');s.end();ok()})().catch(e=>{try{s.destroy()}catch(x){}no(e)})})}
+const PW_ALPHA='abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const genPass=()=>Array.from(crypto.randomBytes(10),b=>PW_ALPHA[b%PW_ALPHA.length]).join('');
+const pwOk=(u,p)=>{const h=crypto.scryptSync(String(p||''),u.salt,64),g=Buffer.from(u.hash,'hex');return h.length===g.length&&crypto.timingSafeEqual(h,g)};
+const tmpOk=(u,p)=>{if(!u.thash||!(u.texp>Date.now()))return false;const h=crypto.scryptSync(String(p||''),u.tsalt,64),g=Buffer.from(u.thash,'hex');return h.length===g.length&&crypto.timingSafeEqual(h,g)};
 const routes={
 ...rtRoutes,
 async 'POST /api/register'(q,r){const b=await body(q);const n=String(b.user||'').trim(),p=String(b.pass||'');
  if(!/^[\w.-]{3,20}$/.test(n)||p.length<8||p.length>100)return send(r,400,{error:'Usuário 3-20 letras/números e senha com 8+ caracteres.'});
+ const em=String(b.email||'').trim().toLowerCase();if(process.env.REQUIRE_EMAIL!=='0'&&!EMAIL_RE.test(em))return send(r,400,{error:'Informe um e-mail válido.'});if(em&&!EMAIL_RE.test(em))return send(r,400,{error:'E-mail inválido.'});
  if(limited('reg'+ipOf(q),5,3600e3))return send(r,429,{error:'Muitas contas criadas, tente mais tarde.'});
+ if(em&&Q1('SELECT 1 FROM users WHERE lower(email)=?',em))return send(r,409,{error:'Este e-mail já está em uso.'});
  if(Q1('SELECT 1 FROM users WHERE name=?',n))return send(r,409,{error:'Usuário já existe.'});
  const salt=crypto.randomBytes(16).toString('hex'),hash=crypto.scryptSync(p,salt,64).toString('hex');
- const id=X('INSERT INTO users(name,salt,hash,created) VALUES(?,?,?,?)',n,salt,hash,Date.now()).lastInsertRowid;send(r,200,{token:login(id),user:n})},
+ const id=X('INSERT INTO users(name,salt,hash,created,email) VALUES(?,?,?,?,?)',n,salt,hash,Date.now(),em||null).lastInsertRowid;send(r,200,{token:login(id),user:n})},
 async 'POST /api/login'(q,r){const b=await body(q);if(limited('lg'+ipOf(q),10,600e3))return send(r,429,{error:'Muitas tentativas.'});
  const u=Q1('SELECT * FROM users WHERE name=? AND banned=0',String(b.user||''));
- const h=u&&crypto.scryptSync(String(b.pass||''),u.salt,64);
- if(!u||!crypto.timingSafeEqual(h,Buffer.from(u.hash,'hex')))return send(r,401,{error:'Usuário ou senha inválidos.'});send(r,200,{token:login(u.id),user:u.name})},
+ let okp=u&&pwOk(u,b.pass);if(u&&!okp&&tmpOk(u,b.pass)){okp=true;X('UPDATE users SET salt=?,hash=?,thash=NULL,tsalt=NULL,texp=0 WHERE id=?',u.tsalt,u.thash,u.id)}
+ if(!u||!okp)return send(r,401,{error:'Usuário ou senha inválidos.'});send(r,200,{token:login(u.id),user:u.name})},
 async 'GET /api/save'(q,r){const u=user(q);if(!u)return send(r,401,{});const s=Q1('SELECT state FROM saves WHERE uid=?',u.id);const st=s?JSON.parse(s.state):null;if(st&&applyCredits(u.id,st)){X('UPDATE saves SET state=?,orc=?,dia=? WHERE uid=?',JSON.stringify(st),st.orc|0,st.dia|0,u.id)}send(r,200,{state:st,epoch:epochOf(u),dev:u.dev?1:0,locked:u.locked&&!u.dev?1:0})},
 async 'PUT /api/save'(q,r){const u=user(q);if(!u)return send(r,401,{});if(u.locked&&!u.dev)return send(r,423,{locked:1});const ep0=epochOf(u);if(!(getEpoch()==='0'&&!u.ep)&&String(q.headers['x-epoch']||'')!==ep0)return send(r,409,{reset:1,epoch:ep0});const b=await body(q);const st=b.state;
  if(!st||typeof st!=='object')return send(r,400,{});const prev=Q1('SELECT * FROM saves WHERE uid=?',u.id),now=Date.now();
