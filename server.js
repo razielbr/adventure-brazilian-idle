@@ -101,7 +101,7 @@ n.forEach(m=>X('INSERT INTO alerts(uid,msg,at) VALUES(?,?,?)',uid,m,now));return
 
 // ================= SALAS EM TEMPO REAL (lobby, chat, casas) — SSE, sem dependências =================
 // Cliente abre GET /api/rt?room=lobby3 (fluxo SSE, com Authorization) e envia POST /api/rt/send.
-const ROOMS=new Map(),RTM={max:+process.env.ROOM_MAX||120,perUser:3,flushMs:400};let peerSeq=0;
+const LOBBY_MAX=+process.env.LOBBY_MAX||20,LOBBY_VIP=+process.env.LOBBY_VIP_MAX||40;const ROOMS=new Map(),RTM={max:+process.env.ROOM_MAX||120,perUser:3,flushMs:400};let peerSeq=0;
 const ROOM_RE=/^(lobby\d{1,2}|home[\w:]{1,16})$/,EV_OK=new Set(['chat','knock','knockr','hbuy','hbuyr']);
 const sseW=(res,ev,d)=>{try{res.write('event: '+ev+'\ndata: '+JSON.stringify(d)+'\n\n')}catch(e){}};
 function rtFlush(rm){rm.timer=null;if(!rm.peers.size){ROOMS.delete(rm.n);return}
@@ -113,7 +113,7 @@ const rtBucket=(p,n,ms)=>{const t=Date.now();p.rl=(p.rl||{});const a=(p.rl[n]=(p
 const rtRoutes={
  'GET /api/rt'(q,r,url){const u=user(q);if(!u)return send(r,401,{});const room=String(url.searchParams.get('room')||'');if(!ROOM_RE.test(room))return send(r,400,{error:'sala inválida'});
   let rm=ROOMS.get(room);if(!rm){rm={n:room,peers:new Map(),dirty:new Set(),gone:[],timer:null};ROOMS.set(room,rm)}
-  if(rm.peers.size>=RTM.max)return send(r,503,{error:'sala cheia'});
+  {const lob=/^lobby/.test(room),isV=lob&&(u.dev||(Q1('SELECT vip FROM profiles WHERE uid=?',u.id)||{}).vip),cap=lob?(isV?LOBBY_VIP:LOBBY_MAX):RTM.max;let n=0;for(const p of rm.peers.values())if(p.uid!==u.id)n++;if(n>=cap)return send(r,503,{error:'sala cheia',full:1,cap:LOBBY_MAX})}
   // no máximo 3 conexões por conta no total (a mais antiga cai)
   const mine=[];for(const x of ROOMS.values())for(const p of x.peers.values())if(p.uid===u.id)mine.push([x,p]);while(mine.length>=RTM.perUser){const[x,p]=mine.shift();rtDrop(x,p)}
   r.writeHead(200,{'content-type':'text/event-stream; charset=utf-8','cache-control':'no-cache, no-transform','x-accel-buffering':'no',connection:'keep-alive'});r.socket.setNoDelay(true);r.socket.setTimeout(0);
