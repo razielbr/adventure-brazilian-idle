@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS wday(uid INT,day INT,dia INT DEFAULT 0,orc INT DEFAUL
 CREATE TABLE IF NOT EXISTS credits(id INTEGER PRIMARY KEY,uid INT,dia INT,orc INT,note TEXT,at INT,applied INT DEFAULT 0);`);
 try{db.exec('ALTER TABLE saves ADD COLUMN dia INT DEFAULT 0')}catch(e){}
 try{db.exec('ALTER TABLE saves ADD COLUMN prof TEXT')}catch(e){}try{db.exec('ALTER TABLE saves ADD COLUMN plv INT DEFAULT 0')}catch(e){}
-db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY,v TEXT)');db.exec('CREATE TABLE IF NOT EXISTS houses(k TEXT PRIMARY KEY,uid INT,at INT)');
+db.exec('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY,v TEXT)');db.exec('CREATE TABLE IF NOT EXISTS tnreg(ts INT,uid INT,nick TEXT,p REAL,PRIMARY KEY(ts,uid))');db.exec('CREATE TABLE IF NOT EXISTS houses(k TEXT PRIMARY KEY,uid INT,at INT)');
 const HABS=7*864e5,HK_RE=/^\d{1,3}:\d{1,3}$/;
 function hsStale(uid){const s=Q1('SELECT updated FROM saves WHERE uid=?',uid);return !s||Date.now()-s.updated>HABS}
 function hsVacate(k,uid){X('DELETE FROM houses WHERE k=? AND uid=?',k,uid);const s=Q1('SELECT state FROM saves WHERE uid=?',uid);if(!s)return;try{const st=JSON.parse(s.state);let ch=0;for(const f of ['hs','hn','hl'])if(st[f]&&st[f][k]){delete st[f][k];ch=1}if(st.home&&st.home.k===k){st.home=null;ch=1}if(ch)X('UPDATE saves SET state=? WHERE uid=?',JSON.stringify(st),uid)}catch(e){}}
@@ -143,7 +143,8 @@ const rtRoutes={
  'GET /api/boards'(q,r){const u=user(q);if(!u)return send(r,401,{});
   const rows=Q(`SELECT COALESCE(p.pn,u.name) n,u.id id,COALESCE(json_extract(s.state,'$.pdl'),0) pdl,COALESCE(json_extract(s.state,'$.pdlE'),0) pe,COALESCE(json_extract(s.state,'$.phs'),0) phs,COALESCE(json_extract(s.state,'$.x1.k'),0) k,COALESCE(json_extract(s.state,'$.x1.d'),0) d FROM saves s JOIN users u ON u.id=s.uid LEFT JOIN profiles p ON p.uid=u.id WHERE u.banned=0 AND u.dev=0 ORDER BY s.updated DESC LIMIT 2000`);
   const top=(f,n)=>rows.filter(x=>f(x)>0).sort((a,b)=>f(b)-f(a)).slice(0,n),m=x=>x.id===u.id;
-  send(r,200,{pdl:top(x=>x.pdl|0,100).map(x=>({n:x.n,v:x.pdl|0,me:m(x)})),pve:top(x=>(x.phs|0)||(x.pe|0),100).map(x=>({n:x.n,p:x.pe|0,v:x.phs|0,me:m(x)})),x1:top(x=>x.k|0,100).map(x=>({n:x.n,k:x.k|0,d:x.d|0,me:m(x)}))})},
+  const gv=Q(`SELECT u.id id,json_extract(s.state,'$.gd.name') gn,json_extract(s.state,'$.gd.tag') gt,COALESCE(json_extract(s.state,'$.gvW'),0) w,json_extract(s.state,'$.gvM') m FROM saves s JOIN users u ON u.id=s.uid WHERE u.banned=0 AND u.dev=0 AND json_extract(s.state,'$.gd.name') IS NOT NULL ORDER BY s.updated DESC LIMIT 2000`).map(x=>({n:String(x.gn).slice(0,30),t:String(x.gt||String(x.gn).replace(/[^A-Za-z0-9]/g,'').slice(0,4).toUpperCase()||'GLD').slice(0,4),w:x.w|0,m:String(x.m||''),me:m(x)}));
+  send(r,200,{gvg:gv,pdl:top(x=>x.pdl|0,100).map(x=>({n:x.n,v:x.pdl|0,me:m(x)})),pve:top(x=>(x.phs|0)||(x.pe|0),100).map(x=>({n:x.n,p:x.pe|0,v:x.phs|0,me:m(x)})),x1:top(x=>x.k|0,100).map(x=>({n:x.n,k:x.k|0,d:x.d|0,me:m(x)}))})},
  async 'POST /api/forgot'(q,r){const b=await body(q);const id=String(b.id||b.email||b.user||'').trim().slice(0,200);const ok=()=>send(r,200,{ok:1,msg:'Se a conta existir, enviamos uma senha nova para o e-mail cadastrado. Confira também o spam.'});
   if(!id)return send(r,400,{error:'Digite seu e-mail ou usuário.'});if(!mailOn())return send(r,503,{error:'Recuperação por e-mail ainda não está configurada neste servidor.'});
   if(limited('fg'+ipOf(q),5,3600e3)||limited('fgi'+id.toLowerCase(),3,3600e3))return send(r,429,{error:'Muitos pedidos. Tente de novo em 1 hora.'});
@@ -191,6 +192,12 @@ const rtRoutes={
    if(kept>=1||(!row&&Q1('SELECT 1 FROM houses WHERE uid=? AND k<>?',u.id,k))){lost.push(k);continue}
    kept++;if(!row)X('INSERT OR REPLACE INTO houses(k,uid,at) VALUES(?,?,?)',k,u.id,Date.now())}
   send(r,200,{lost})},
+ 'GET /api/tn'(q,r,url){const u=user(q);if(!u)return send(r,401,{});const ts=Math.trunc(+url.searchParams.get('ts')||0);if(!ts)return send(r,400,{});
+  const rows=Q('SELECT t.uid,t.nick,t.p FROM tnreg t JOIN users x ON x.id=t.uid WHERE t.ts=? AND x.banned=0 ORDER BY t.uid LIMIT 256',ts);send(r,200,{list:rows.map(w=>({n:w.nick,p:w.p,me:w.uid===u.id}))})},
+ async 'POST /api/tn/reg'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),ts=Math.trunc(+b.ts||0),p=Math.max(1,Math.min(1e9,+b.p||1));const nick=String(b.nick||u.name).replace(/[<>&]/g,'').slice(0,24)||u.name;if(!ts)return send(r,400,{});
+  const cnt=Q1('SELECT COUNT(*) c FROM tnreg WHERE ts=? AND uid<>?',ts,u.id).c;if(cnt>=255)return send(r,409,{error:'Chave cheia.'});
+  X('INSERT OR REPLACE INTO tnreg(ts,uid,nick,p) VALUES(?,?,?,?)',ts,u.id,nick,p);X('DELETE FROM tnreg WHERE ts<?',Date.now()-30*864e5);send(r,200,{ok:1})},
+ async 'POST /api/tn/unreg'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),ts=Math.trunc(+b.ts||0);if(ts)X('DELETE FROM tnreg WHERE ts=? AND uid=?',ts,u.id);send(r,200,{ok:1})},
  'GET /api/me'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{id:'u'+u.id,uid:u.pid,name:u.name,dev:!!u.dev,hasEmail:!!u.email})},
  'GET /healthz'(q,r){try{Q1('SELECT 1 x');send(r,200,{ok:1,persist:DBD.persist,s3:{on:S3S.on,ultimoBackup:S3S.ok?new Date(S3S.ok).toISOString():null,backups:S3S.n,erro:S3S.err||null},db:DBD.file,mount:DBD.mount,fstype:DBD.fstype,users:(Q1('SELECT COUNT(*) n FROM users')||{}).n,rooms:ROOMS.size,peers:[...ROOMS.values()].reduce((n,x)=>n+x.peers.size,0)})}catch(e){send(r,500,{ok:0})}}};
 
