@@ -191,8 +191,9 @@ const srv=http.createServer(async(q,r)=>{const url=new URL(q.url,'http://x');
   r.setHeader('x-content-type-options','nosniff');r.setHeader('referrer-policy','same-origin');r.setHeader('x-frame-options','SAMEORIGIN');
   if(String(q.headers['x-forwarded-proto']||'')==='https')r.setHeader('strict-transport-security','max-age=15552000');
   try{const f=routes[q.method+' '+url.pathname];if(f)return await f(q,r,url);
-   if((q.method==='GET'||q.method==='HEAD')&&staticFile(q,r,url))return;r.writeHead(404);r.end('404')
+   if((q.method==='GET'||q.method==='HEAD')&&staticFile(q,r,url))return;if(url.pathname==='/'&&!fs.existsSync(path.join(PUB,'index.html'))){r.writeHead(404,{'content-type':'text/plain;charset=utf-8'});r.end('Servidor no ar, mas falta o arquivo public/index.html no deploy (pasta '+PUB+'). Envie a pasta public inteira para o repositório.');return}r.writeHead(404);r.end('404')
   }catch(e){if(!r.headersSent)send(r,e===0?400:500,{error:'erro'})}});
+if(!fs.existsSync(path.join(PUB,'index.html')))console.error('AVISO: '+path.join(PUB,'index.html')+' não existe — a página inicial dará 404.');
 srv.keepAliveTimeout=65e3;srv.headersTimeout=70e3;
 srv.listen(PORT,HOST,()=>console.log('Adventure Brazilian IDLE em http://'+(HOST==='0.0.0.0'?'localhost':HOST)+':'+PORT+'  (DB: '+(process.env.DB||'jogo.db')+')'));
 // ---- backup diário do banco (VACUUM INTO), guarda os 7 mais recentes
