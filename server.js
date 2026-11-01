@@ -112,6 +112,10 @@ const rtRoutes={
    const j=JSON.stringify(b.data==null?{}:b.data);if(j.length>2000)return send(r,413,{});const data=JSON.parse(j);if(type==='chat'&&data&&typeof data==='object')data.n=String(data.n||u.name).slice(0,24);
    for(const x of rm.peers.values())sseW(x.res,'ev',{type,data,peer:p.id});return send(r,200,{ok:1})}
   send(r,400,{})},
+ 'GET /api/boards'(q,r){const u=user(q);if(!u)return send(r,401,{});
+  const rows=Q(`SELECT COALESCE(p.pn,u.name) n,u.id id,COALESCE(json_extract(s.state,'$.pdl'),0) pdl,COALESCE(json_extract(s.state,'$.pdlE'),0) pe,COALESCE(json_extract(s.state,'$.phs'),0) phs,COALESCE(json_extract(s.state,'$.x1.k'),0) k,COALESCE(json_extract(s.state,'$.x1.d'),0) d FROM saves s JOIN users u ON u.id=s.uid LEFT JOIN profiles p ON p.uid=u.id WHERE u.banned=0 ORDER BY s.updated DESC LIMIT 2000`);
+  const top=(f,n)=>rows.filter(x=>f(x)>0).sort((a,b)=>f(b)-f(a)).slice(0,n),m=x=>x.id===u.id;
+  send(r,200,{pdl:top(x=>x.pdl|0,100).map(x=>({n:x.n,v:x.pdl|0,me:m(x)})),pve:top(x=>(x.phs|0)||(x.pe|0),100).map(x=>({n:x.n,p:x.pe|0,v:x.phs|0,me:m(x)})),x1:top(x=>x.k|0,100).map(x=>({n:x.n,k:x.k|0,d:x.d|0,me:m(x)}))})},
  'GET /api/me'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{id:'u'+u.id,name:u.name,dev:!!u.dev})},
  'GET /healthz'(q,r){try{Q1('SELECT 1 x');send(r,200,{ok:1,rooms:ROOMS.size,peers:[...ROOMS.values()].reduce((n,x)=>n+x.peers.size,0)})}catch(e){send(r,500,{ok:0})}}};
 const routes={
