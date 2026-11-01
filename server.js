@@ -31,7 +31,7 @@ CREATE INDEX IF NOT EXISTS ids_owner ON ids(owner);
 CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY,uid INT,msg TEXT,at INT,cleared INT DEFAULT 0);`);
 const Q=(s,...a)=>db.prepare(s).all(...a),Q1=(s,...a)=>db.prepare(s).get(...a),X=(s,...a)=>db.prepare(s).run(...a);
 const sha=t=>crypto.createHash('sha256').update(t).digest('hex');
-const LIM={lvMax:300,lvJump:40,orcJump:5000,charJump:100,minGapMs:5000};
+const LIM={lvMax:5000,lvJump:40,orcJump:5000,charJump:100,minGapMs:5000};
 const send=(r,c,o)=>{r.writeHead(c,{'content-type':'application/json'});r.end(JSON.stringify(o))};
 const body=req=>new Promise((ok,no)=>{let b='';req.on('data',d=>{b+=d;if(b.length>5e6){no(0);req.destroy()}});req.on('end',()=>{try{ok(JSON.parse(b||'{}'))}catch(e){no(0)}})});
 const hit={};const limited=(k,n,ms)=>{const t=Date.now(),a=(hit[k]=(hit[k]||[]).filter(x=>t-x<ms));a.push(t);return a.length>n};
@@ -173,7 +173,7 @@ const rtRoutes={
   const id=X('INSERT INTO users(name,salt,hash,created,email,gsub) VALUES(?,?,?,?,?,?)',n,salt,hash,Date.now(),em,t.sub).lastInsertRowid;send(r,200,{token:login(id),user:n,novo:1})},
  async 'POST /api/devcmd'(q,r){const u=user(q);if(!u||!u.dev)return send(r,403,{error:'Só conta DEV.'});const b=await body(q);const cmd=String(b.cmd||'').toLowerCase(),qtd=Math.trunc(+b.qtd||0),arg=Math.trunc(+b.arg||0);let a=String(b.alvo||'').trim().slice(0,200);
   if(!['diamantes','oricalco','levelup','gold','bau','personagem'].includes(cmd)||!qtd)return send(r,400,{error:'Comando inválido.'});
-  const lim={diamantes:1e7,oricalco:1e6,levelup:300,gold:1e13,bau:1e6,personagem:50}[cmd];if(Math.abs(qtd)>lim||(['levelup','personagem'].includes(cmd)&&qtd<1))return send(r,400,{error:'Valor fora do limite (máx '+lim+').'});
+  const lim={diamantes:1e7,oricalco:1e6,levelup:5000,gold:1e13,bau:1e6,personagem:50}[cmd];if(Math.abs(qtd)>lim||(['levelup','personagem'].includes(cmd)&&qtd<1))return send(r,400,{error:'Valor fora do limite (máx '+lim+').'});
   if((cmd==='bau'||cmd==='personagem')&&(arg<0||arg>5))return send(r,400,{error:'Opção inválida.'});
   let t;if(!a)t={id:u.id,name:u.name,pid:u.pid};else{const m=/^(?:id\s*[-:#]?\s*|#)?(\d{1,10})$/i.exec(a);t=m?(m[1].length===10?Q1('SELECT id,name,pid FROM users WHERE pid=?',+m[1]):Q1('SELECT id,name,pid FROM users WHERE id=?',+m[1])):null;
   if(!t)t=Q1('SELECT id,name,pid FROM users WHERE lower(email)=?',a.toLowerCase());if(!t)t=Q1('SELECT id,name,pid FROM users WHERE name=?',a)}
