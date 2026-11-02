@@ -43,18 +43,21 @@ function summarize(st){const ch=Array.isArray(st.chars)?st.chars:[];return{maxLv
 // ---- Anti-clonagem: cada item/personagem tem um uid. O servidor registra o dono na 1ª vez que vê o uid.
 // Se o mesmo uid aparece em outra conta, ou volta depois de ter sumido (save antigo restaurado), é clone: o item é removido do save e vira alerta.
 const UID_RE=/^[0-9a-f]{16}$/,ITEM_KEYS=['eqs','runes','pots'];
-function collectUids(st){const o=[];ITEM_KEYS.forEach(k=>{(Array.isArray(st[k])?st[k]:[]).forEach(x=>{if(x&&UID_RE.test(x.uid))o.push([x.uid,k])})});(Array.isArray(st.chars)?st.chars:[]).forEach(c=>{if(c&&UID_RE.test(c.uid))o.push([c.uid,'chars'])});return o}
+// Mundos IDLE/LOBBY: os itens do mundo que não está ativo ficam em st.W[mundo]; contam como presentes (senão trocar de mundo marcaria tudo como "gasto" e apagaria ao voltar).
+function worldsOf(st){const o=[st];if(st&&st.W&&typeof st.W==='object')Object.values(st.W).forEach(w=>{if(w&&typeof w==='object')o.push(w)});return o}
+function collectUids(st){const o=[];worldsOf(st).forEach(w=>{ITEM_KEYS.forEach(k=>{(Array.isArray(w[k])?w[k]:[]).forEach(x=>{if(x&&UID_RE.test(x.uid))o.push([x.uid,k])})});(Array.isArray(w.chars)?w.chars:[]).forEach(c=>{if(c&&UID_RE.test(c.uid))o.push([c.uid,'chars'])})});return o}
 function idGuard(uid,st,prev,now){const cur=collectUids(st),bad=new Set(),msgs=[];
  const dupIn=new Set(),seen=new Set();cur.forEach(([u])=>{if(seen.has(u))dupIn.add(u);seen.add(u)});
  dupIn.forEach(u=>{bad.add(u);msgs.push(`Item duplicado dentro do mesmo save: ${u}`)});
- for(const [u,kind] of cur){if(bad.has(u))continue;const row=Q1('SELECT owner,gone FROM ids WHERE uid=?',u);
+ let wasS=null;try{wasS=prev?new Set(collectUids(JSON.parse(prev.state)).map(x=>x[0])):null}catch(e){}
+ for(const [u,kind] of cur){if(bad.has(u))continue;let row=Q1('SELECT owner,gone FROM ids WHERE uid=?',u);if(row&&row.gone&&row.owner===uid&&wasS&&wasS.has(u)){X('UPDATE ids SET gone=0 WHERE uid=? AND owner=?',u,uid);row.gone=0}
   if(!row){X('INSERT INTO ids(uid,owner,kind,at) VALUES(?,?,?,?)',u,uid,kind,now);continue}
   if(row.owner!==uid){const o=Q1('SELECT name FROM users WHERE id=?',row.owner);msgs.push(`CLONE: ${kind} ${u} pertence a "${o?o.name:row.owner}"`);if(kind!=='chars')bad.add(u);continue}
   if(row.gone&&kind!=='chars'){bad.add(u);msgs.push(`CLONE/rollback: ${kind} ${u} já tinha sido gasto/vendido e voltou`)}}
  // itens que existiam no save anterior e sumiram agora: marca como "gone" (não podem voltar)
  if(prev){try{const was=collectUids(JSON.parse(prev.state)),now_=new Set(cur.map(c=>c[0]));was.forEach(([u,k])=>{if(k!=='chars'&&!now_.has(u))X('UPDATE ids SET gone=1 WHERE uid=? AND owner=?',u,uid)})}catch(e){}}
  msgs.slice(0,20).forEach(m=>X('INSERT INTO alerts(uid,msg,at) VALUES(?,?,?)',uid,m,now));
- if(bad.size){ITEM_KEYS.forEach(k=>{if(Array.isArray(st[k]))st[k]=st[k].filter(x=>!(x&&bad.has(x.uid)))})}
+ if(bad.size){worldsOf(st).forEach(w=>{ITEM_KEYS.forEach(k=>{if(Array.isArray(w[k]))w[k]=w[k].filter(x=>!(x&&bad.has(x.uid)))})})}
  return[...bad]}
 db.exec('CREATE TABLE IF NOT EXISTS announces(id INTEGER PRIMARY KEY,uid INT,name TEXT,txt TEXT,k TEXT,at INT)');
 try{db.exec('ALTER TABLE users ADD COLUMN locked INT DEFAULT 0')}catch(e){}try{db.exec('ALTER TABLE users ADD COLUMN dev INT DEFAULT 0')}catch(e){}
