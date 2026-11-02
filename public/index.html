@@ -636,12 +636,13 @@ const save=()=>{if(window.__rstNow)return;try{idStamp()}catch(e){}try{dropScan()
 
 /* ===== Sistema de ID único (anti-clonagem) ===== */
 function uidNew(){const a=new Uint8Array(8);(window.crypto||window.msCrypto).getRandomValues(a);return[...a].map(b=>b.toString(16).padStart(2,'0')).join('')}
-const cidOf=x=>{try{if(!x||!x.sp)return'';if(!x.uid||!/^[0-9a-f]{16}$/.test(x.uid))x.uid=uidNew();return(BigInt('0x'+x.uid)%(36n**10n)).toString(36).toUpperCase().padStart(10,'0')}catch(e){return''}};
+const cidOf=x=>{try{if(!x||!x.sp)return'';if(!x.uid||!/^[0-9a-f]{16}$/.test(x.uid))x.uid=uidNew();return String(x.uid).toUpperCase().match(/.{1,4}/g).join('-')}catch(e){return''}};
 const uidFmt=u=>u?'ID-'+String(u).toUpperCase().match(/.{1,4}/g).join('-'):'';
 const ID_KEYS=['eqs','runes','pots'];
 function idStamp(){let rm=0;if(!S||typeof S!=='object')return 0;const seen=new Set();
 ID_KEYS.forEach(k=>{const a=S[k];if(!Array.isArray(a))return;for(let i=0;i<a.length;i++){const x=a[i];if(!x||typeof x!=='object')continue;if(!x.uid||!/^[0-9a-f]{16}$/.test(x.uid))x.uid=uidNew();if(seen.has(x.uid)){a.splice(i,1);i--;rm++}else seen.add(x.uid)}});
 if(Array.isArray(S.chars)){const cs=new Set();for(let i=0;i<S.chars.length;i++){const c=S.chars[i];if(!c)continue;if(!c.uid||!/^[0-9a-f]{16}$/.test(c.uid))c.uid=uidNew();if(cs.has(c.uid)){S.chars.splice(i,1);i--;rm++}else cs.add(c.uid)}}
+try{Object.values(S.W||{}).forEach(w=>{if(!w)return;ID_KEYS.concat('chars').forEach(k=>{(Array.isArray(w[k])?w[k]:[]).forEach(x=>{if(x&&typeof x==='object'&&(!x.uid||!/^[0-9a-f]{16}$/.test(x.uid)))x.uid=uidNew()})})})}catch(e){}
 if(rm){S.cloneLog=(S.cloneLog|0)+rm;idWarn(rm)}return rm}
 function idWarn(n){try{(typeof ivToast==='function'?ivToast:alert)('⚠️ '+n+' item(ns)/personagem(ns) duplicado(s) com o mesmo ID foram removidos.')}catch(e){}}
 function idStrip(list){if(!Array.isArray(list)||!list.length)return;const bad=new Set(list);let n=0;
@@ -650,10 +651,10 @@ if(Array.isArray(S.chars)){const ids=new Set(S.eqs.map(e=>e.id));S.chars.forEach
 if(n){S.cloneLog=(S.cloneLog|0)+n;save();idWarn(n);try{go(tab)}catch(e){}}}
 window.idStrip=idStrip;window.setWallet=w=>{S.dia=w.dia|0;S.orc=w.orc|0;save();try{refresh()}catch(e){}};
 const nid=()=>S.nid++;
-const newChar=(sp,rar)=>({id:nid(),sp,v:Math.floor(rnd0()*31),rar,el:rar===5?null:Math.floor(rnd0()*12),lv:1,xp:0,orc:0,pts:0,inv:Array(9).fill(0),eq:Array(9).fill(null),rn:[]});
-const newRune=()=>({id:nid(),st:rnd0()<.08?'MANA':pick(ST),rar:Math.min(4,pickR()),rf:0});
-const eqSt=sl=>pick(ST);const newEq=()=>{const s0=Math.floor(rnd0()*7),sl=s0===5?10:s0===6?9:s0;return{id:nid(),slot:sl,st:eqSt(sl),rs:1,rar:pickR()}};
-const NEWACC=!S.chars.length&&!S.wipC;delete S.wipC;S.cred=0;if(S.gv){if(S.gv.c==='orc')S.orc=(S.orc|0)+Math.floor(S.gv.d||0);else if(S.gv.c==='dia')S.dia=(S.dia|0)+Math.floor(S.gv.d||0);S.gv=null}delete S.gvPix;
+const newChar=(sp,rar)=>({id:nid(),uid:uidNew(),sp,v:Math.floor(rnd0()*31),rar,el:rar===5?null:Math.floor(rnd0()*12),lv:1,xp:0,orc:0,pts:0,inv:Array(9).fill(0),eq:Array(9).fill(null),rn:[]});
+const newRune=()=>({id:nid(),uid:uidNew(),st:rnd0()<.08?'MANA':pick(ST),rar:Math.min(4,pickR()),rf:0});
+const eqSt=sl=>pick(ST);const newEq=()=>{const s0=Math.floor(rnd0()*7),sl=s0===5?10:s0===6?9:s0;return{id:nid(),uid:uidNew(),slot:sl,st:eqSt(sl),rs:1,rar:pickR()}};
+try{const mx=a=>(Array.isArray(a)?a:[]).reduce((m,x)=>Math.max(m,x&&x.id|0),0);let m=Math.max(mx(S.chars),mx(S.eqs),mx(S.runes),mx(S.pots),mx(S.gars),mx(S.sphs));Object.values(S.W||{}).forEach(w=>{m=Math.max(m,mx(w&&w.chars),mx(w&&w.eqs),mx(w&&w.runes),mx(w&&w.pots))});if((S.nid|0)<=m)S.nid=m+1}catch(e){}const NEWACC=!S.chars.length&&!S.wipC;delete S.wipC;S.cred=0;if(S.gv){if(S.gv.c==='orc')S.orc=(S.orc|0)+Math.floor(S.gv.d||0);else if(S.gv.c==='dia')S.dia=(S.dia|0)+Math.floor(S.gv.d||0);S.gv=null}delete S.gvPix;
 if(!S.chars.length){['dragon_born','dark_knight','chronomancer','warrior'].forEach(k=>{const c=newChar(k,0);c.bind=Date.now()+60*864e5;S.chars.push(c)});S.team=S.chars.map(c=>c.id);S.sel=S.chars[0].id}
 S.chars.forEach(c=>{while(c.eq.length<11)c.eq.push(null);while(c.inv.length<11)c.inv.push(0)});
 const C=id=>S.chars.find(c=>c.id===id),RU=id=>S.runes.find(r=>r.id===id),EQ=id=>S.eqs.find(e=>e.id===id);
@@ -1369,7 +1370,7 @@ function cfgApply(){fxApply();const c=Object.assign({},CFGD,S.cfg||{}),b=documen
 function cfgSet(k,v){S.cfg=Object.assign({},CFGD,S.cfg||{});S.cfg[k]=(k==='res'||k==='fg'||k==='mb')?+v:v;save();cfgApply()}
 function optOpen(){const c=Object.assign({},CFGD,S.cfg||{});const o=(k,list)=>`<select onchange="cfgSet('${k}',this.value)">${list.map(([v,t])=>`<option value="${v}"${String(c[k])===String(v)?' selected':''}>${t}</option>`).join('')}</select>`;
 const d=document.createElement('div');d.className='optbg';d.onclick=e=>{if(e.target===d)d.remove()};d.innerHTML=`<div class="optbox"><h3>⚙️ Opções de Jogo</h3>
-${window.__myUid?`<div class="or"><span>🆔 ID da conta</span><b style="user-select:all">${window.__myUid}</b></div>`:''}<div class="or"><span>🏷️ Versão do jogo</span><b>V699</b></div><div class="or"><span>🌐 Idioma / Language</span><select onchange="setLang(this.value)"><option value="pt"${localStorage.getItem('abi_lang')==='en'?'':' selected'}>Português</option><option value="en"${localStorage.getItem('abi_lang')==='en'?' selected':''}>English</option></select></div>
+${window.__myUid?`<div class="or"><span>🆔 ID da conta</span><b style="user-select:all">${window.__myUid}</b></div>`:''}<div class="or"><span>🏷️ Versão do jogo</span><b>V700</b></div><div class="or"><span>🌐 Idioma / Language</span><select onchange="setLang(this.value)"><option value="pt"${localStorage.getItem('abi_lang')==='en'?'':' selected'}>Português</option><option value="en"${localStorage.getItem('abi_lang')==='en'?' selected':''}>English</option></select></div>
 <div class="or"><span>🖥️ Resolução (escala da tela)</span>${o('res',[[75,'75%'],[90,'90%'],[100,'100% (padrão)'],[110,'110%'],[125,'125%'],[150,'150%']])}</div>
 <div class="or"><span>🟢 DLSS 4.5</span>${o('dlss',[['off','Desligado'],['dlaa','DLAA (máx. qualidade)'],['quality','Qualidade'],['balanced','Equilibrado'],['performance','Desempenho']])}</div>
 <div class="or"><span>🔴 FSR 3.5</span>${o('fsr',[['off','Desligado'],['quality','Qualidade'],['balanced','Equilibrado'],['performance','Desempenho']])}</div>
