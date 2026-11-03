@@ -125,7 +125,7 @@ function gvSettle(){try{const now=Date.now();for(const w of Q("SELECT * FROM gvw
  aOp(W,{t:'gw',cur:w.cur,n:w.q*2,win:1,m:`🏆 VITÓRIA na guerra contra [${aw?w.bt:w.at}] ${ln}! Você recebeu ${w.q*2} ${w.cur==='orc'?'♦️':'💠'} (sua cota + a da guilda adversária).`});aOp(Lz,{t:'gw',cur:w.cur,n:0,win:0,m:`💀 DERROTA na guerra contra [${aw?w.at:w.bt}] ${wn}. A cota foi perdida.`});msgTo(W,`🏆 Guerra #${w.id}: sua guilda venceu!`,'GVG');msgTo(Lz,`💀 Guerra #${w.id}: sua guilda perdeu.`,'GVG')}}catch(e){console.error('gvSettle',e)}}
 setInterval(gvSettle,30000);setTimeout(gvSettle,7000);
 db.exec('CREATE TABLE IF NOT EXISTS gvsreg(w INT,g TEXT COLLATE NOCASE,t TEXT,ic TEXT,uid INT,ros TEXT,at INT,PRIMARY KEY(w,g))');
-db.exec('CREATE TABLE IF NOT EXISTS wboss(k TEXT PRIMARY KEY,f REAL DEFAULT 0,d INT DEFAULT 0,lk TEXT)');db.exec('CREATE TABLE IF NOT EXISTS wbdmg(k TEXT,uid INT,dm REAL,name TEXT,gd TEXT,PRIMARY KEY(k,uid))');db.exec('CREATE TABLE IF NOT EXISTS devops(id INTEGER PRIMARY KEY,uid INT,op TEXT,at INT,done INT DEFAULT 0)');
+db.exec('CREATE TABLE IF NOT EXISTS cerco(st INT,g TEXT COLLATE NOCASE,k INT DEFAULT 0,PRIMARY KEY(st,g))');db.exec('CREATE TABLE IF NOT EXISTS cercoend(st INT PRIMARY KEY)');db.exec('CREATE TABLE IF NOT EXISTS wboss(k TEXT PRIMARY KEY,f REAL DEFAULT 0,d INT DEFAULT 0,lk TEXT)');db.exec('CREATE TABLE IF NOT EXISTS wbdmg(k TEXT,uid INT,dm REAL,name TEXT,gd TEXT,PRIMARY KEY(k,uid))');db.exec('CREATE TABLE IF NOT EXISTS devops(id INTEGER PRIMARY KEY,uid INT,op TEXT,at INT,done INT DEFAULT 0)');
 try{db.exec('ALTER TABLE users ADD COLUMN ep INT DEFAULT 0')}catch(e){}
 for(const c of ['gsub TEXT','email TEXT','tsalt TEXT','thash TEXT','texp INT DEFAULT 0','gexp INT DEFAULT 0','pid INT'])try{db.exec('ALTER TABLE users ADD COLUMN '+c)}catch(e){}
 try{db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_gsub ON users(gsub) WHERE gsub IS NOT NULL')}catch(e){}
@@ -177,10 +177,17 @@ const rtBucket=(p,n,ms)=>{const t=Date.now();p.rl=(p.rl||{});const a=(p.rl[n]=(p
 const WBK={ant:{n:'🐜 Rainha Formiga Mundial',rs:864e5},sl:{n:'🐉 Sleifer, the Malignant Dragon',rs:7*864e5}},wbLast=new Map();
 const wbSt=k=>{let w=Q1('SELECT k,f,d,lk FROM wboss WHERE k=?',k);if(!w){X('INSERT INTO wboss(k,f,d) VALUES(?,0,0)',k);w={k,f:0,d:0,lk:null}}if(w.d&&Date.now()>=w.d){X('UPDATE wboss SET d=0,f=0 WHERE k=?',k);w.d=0;w.f=0}return w};
 const wbPub=(k,uid)=>{const w=wbSt(k),top=Q('SELECT name,gd,dm FROM wbdmg WHERE k=? ORDER BY dm DESC LIMIT 3',k),me=uid?Q1('SELECT dm FROM wbdmg WHERE k=? AND uid=?',k,uid):null;return{f:Math.min(1,w.f||0),d:w.d||0,lk:w.lk||'',top:top.map(t=>({n:t.name,g:t.gd||'',p:Math.round(t.dm*1000)/10})),my:me?Math.round(me.dm*1000)/10:0}};
+
+// ===== Cerco de Tangamandapio (GVG de sábado 18h, 2h de duração, só guilda) =====
+const CERCO_OFF=3*36e5,CERCO_WIN=2*36e5,cercoLast=new Map();
+const cercoWin=(now)=>{now=now||Date.now();const d=new Date(now-CERCO_OFF),back=(d.getUTCDay()-6+7)%7;let s=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()-back,18)+CERCO_OFF;if(s>now)s-=7*864e5;return{s,e:s+CERCO_WIN,open:now>=s&&now<s+CERCO_WIN}};
+const cercoGd=uid=>(Q1("SELECT g FROM gdm WHERE w='L' AND uid=?",uid)||{}).g||null;
+const cercoRank=st=>Q('SELECT g,k FROM cerco WHERE st=? ORDER BY k DESC,g LIMIT 8',st).map(x=>({g:x.g,k:x.k}));
+function cercoClose(){const now=Date.now();Q('SELECT DISTINCT st FROM cerco WHERE st+?<=? AND st NOT IN (SELECT st FROM cercoend)',CERCO_WIN,now).forEach(r=>{X('INSERT OR IGNORE INTO cercoend(st) VALUES(?)',r.st);const top=cercoRank(r.st).slice(0,3);if(!top.length)return;const m=['🥇','🥈','🥉'];const txt=('🏰 Cerco de Tangamandapio encerrado! '+top.map((t,i)=>m[i]+' Guilda '+t.g+' ('+t.k+' abates)').join(' · ')).replace(/[<>&|]/g,'').slice(0,160);X('INSERT INTO announces(uid,name,txt,k,at) VALUES(?,?,?,?,?)',0,'GVG',txt,'gl|#ffd24a|Impact',now)})}
 const rtRoutes={
- 'GET /api/rt'(q,r,url){const u=user(q);if(!u)return send(r,401,{});const room=String(url.searchParams.get('room')||'');if(!ROOM_RE.test(room))return send(r,400,{error:'sala inválida'});
+ 'GET /api/rt'(q,r,url){const u=user(q);if(!u)return send(r,401,{});const room=String(url.searchParams.get('room')||'');if(!ROOM_RE.test(room))return send(r,400,{error:'sala inválida'});if(room==='lobby70'&&!u.dev){if(!cercoWin().open)return send(r,403,{error:'O Cerco só abre no sábado às 18h.'});if(!cercoGd(u.id))return send(r,403,{error:'Só quem está em guilda entra no Cerco.'})}
   let rm=ROOMS.get(room);if(!rm){rm={n:room,peers:new Map(),dirty:new Set(),gone:[],timer:null};ROOMS.set(room,rm)}
-  {const lob=/^lobby/.test(room),isV=lob&&(u.dev||(Q1('SELECT vip FROM profiles WHERE uid=?',u.id)||{}).vip),cap=lob?(isV?LOBBY_VIP:LOBBY_MAX):RTM.max;let n=0;for(const p of rm.peers.values())if(p.uid!==u.id)n++;if(n>=cap)return send(r,503,{error:'sala cheia',full:1,cap:LOBBY_MAX})}
+  {const lob=/^lobby/.test(room)&&room!=='lobby70',isV=lob&&(u.dev||(Q1('SELECT vip FROM profiles WHERE uid=?',u.id)||{}).vip),cap=lob?(isV?LOBBY_VIP:LOBBY_MAX):RTM.max;let n=0;for(const p of rm.peers.values())if(p.uid!==u.id)n++;if(n>=cap)return send(r,503,{error:'sala cheia',full:1,cap:LOBBY_MAX})}
   // no máximo 3 conexões por conta no total (a mais antiga cai)
   const mine=[];for(const x of ROOMS.values())for(const p of x.peers.values())if(p.uid===u.id)mine.push([x,p]);while(mine.length>=RTM.perUser){const[x,p]=mine.shift();rtDrop(x,p)}
   r.writeHead(200,{'content-type':'text/event-stream; charset=utf-8','cache-control':'no-cache, no-transform','x-accel-buffering':'no',connection:'keep-alive'});r.socket.setNoDelay(true);r.socket.setTimeout(0);
@@ -193,7 +200,7 @@ const rtRoutes={
   if(!p||p.uid!==u.id)return send(r,404,{error:'sala/peer desconhecido'});
   if(b.t==='presence'){if(rtBucket(p,'pr',1000)>6)return send(r,429,{});const j=JSON.stringify(b.presence==null?null:b.presence);if(j.length>6000)return send(r,413,{});p.presence=b.presence==null?null:JSON.parse(j);rtMark(rm,p.id,0);return send(r,200,{ok:1})}
   if(b.t==='leave'){rtDrop(rm,p);return send(r,200,{ok:1})}
-  if(b.t==='emit'){const type=String(b.type||'');if(!EV_OK.has(type))return send(r,400,{});if((type==='hit'||type==='kill')&&b.room!=='lobby11')return send(r,400,{});if(rtBucket(p,'em',1000)>(type==='chat'?2:type==='hit'?20:type==='kill'?4:8))return send(r,429,{});
+  if(b.t==='emit'){const type=String(b.type||'');if(!EV_OK.has(type))return send(r,400,{});if((type==='hit'||type==='kill')&&b.room!=='lobby11'&&b.room!=='lobby70')return send(r,400,{});if(rtBucket(p,'em',1000)>(type==='chat'?2:type==='hit'?20:type==='kill'?4:8))return send(r,429,{});
    const j=JSON.stringify(b.data==null?{}:b.data);if(j.length>2000)return send(r,413,{});const data=JSON.parse(j);if(type==='chat'&&data&&typeof data==='object')data.n=String(data.n||u.name).slice(0,24);
    for(const x of rm.peers.values())sseW(x.res,'ev',{type,data,peer:p.id});return send(r,200,{ok:1})}
   send(r,400,{})},
@@ -233,6 +240,9 @@ const rtRoutes={
   if(cmd==='diamantes'||cmd==='oricalco')X('INSERT INTO credits(uid,dia,orc,note,at) VALUES(?,?,?,?,?)',t.id,cmd==='diamantes'?qtd:0,cmd==='oricalco'?qtd:0,note,Date.now());
   else{const op=cmd==='levelup'?{t:'lv',n:qtd}:cmd==='gold'?{t:'gold',n:qtd}:cmd==='bau'?{t:'bau',d:arg,n:qtd}:{t:'pj',r:arg,n:qtd};X('INSERT INTO devops(uid,op,at) VALUES(?,?,?)',t.id,JSON.stringify(op),Date.now());}
   send(r,200,{ok:1,id:t.pid||t.id,name:t.name})},
+ async 'GET /api/cerco'(q,r){const u=user(q);if(!u)return send(r,401,{});cercoClose();const w=cercoWin();send(r,200,{now:Date.now(),open:w.open,st:w.s,end:w.e,g:cercoGd(u.id)||'',rank:cercoRank(w.s)})},
+ async 'POST /api/cerco/kill'(q,r){const u=user(q);if(!u)return send(r,401,{});const w=cercoWin(),g=cercoGd(u.id);if(!w.open||!g)return send(r,403,{});const now=Date.now();if(now-(cercoLast.get(u.id)||0)<2500)return send(r,429,{});cercoLast.set(u.id,now);if(cercoLast.size>5000)cercoLast.clear();
+  X('INSERT INTO cerco(st,g,k) VALUES(?,?,1) ON CONFLICT(st,g) DO UPDATE SET k=k+1',w.s,g);cercoClose();send(r,200,{ok:1,rank:cercoRank(w.s)})},
  async 'GET /api/wb'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{now:Date.now(),ant:wbPub('ant',u.id),sl:wbPub('sl',u.id)})},
  async 'POST /api/wb/hit'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),k=String(b.k||'');if(!WBK[k])return send(r,400,{error:'boss inválido'});const now=Date.now();let w=wbSt(k);if(w.d>now)return send(r,200,{now,[k]:wbPub(k,u.id)});
   const lk=u.id+k,last=wbLast.get(lk)||0;if(now-last<1800)return send(r,429,{});wbLast.set(lk,now);if(wbLast.size>5000)wbLast.clear();
@@ -410,7 +420,7 @@ async 'POST /api/admin/unlock'(q,r){if(!isAdmin(q))return send(r,403,{});const b
 async 'POST /api/admin/dev'(q,r){if(!isAdmin(q))return send(r,403,{});const b=await body(q);X('UPDATE users SET dev=? WHERE id=?',b.dev?1:0,+b.id);send(r,200,{ok:1})},
 async 'POST /api/admin/ban'(q,r){if(!isAdmin(q))return send(r,403,{});const b=await body(q);X('UPDATE users SET banned=? WHERE id=?',b.ban?1:0,+b.id);if(b.ban)X('DELETE FROM sessions WHERE uid=?',+b.id);send(r,200,{ok:1})},
 async 'POST /api/admin/reset'(q,r){if(!isAdmin(q))return send(r,403,{});const b=await body(q);if(b.confirm!=='RESET')return send(r,400,{error:'digite RESET'});
- ['saves','hist','ids','wday','credits','announces','alerts','wboss','wbdmg'].forEach(t=>X('DELETE FROM '+t));X('UPDATE users SET locked=0');
+ ['saves','hist','ids','wday','credits','announces','alerts','wboss','wbdmg','cerco','cercoend'].forEach(t=>X('DELETE FROM '+t));X('UPDATE users SET locked=0');
  const ep=String(Date.now());X("INSERT OR REPLACE INTO meta(k,v) VALUES('epoch',?)",ep);send(r,200,{ok:1,epoch:ep,users:Q1('SELECT COUNT(*) n FROM users').n})},
 async 'POST /api/admin/wipe'(q,r){if(!isAdmin(q))return send(r,403,{});const b=await body(q);const P=new Set(Array.isArray(b.parts)?b.parts:[]);
  if(!P.size)return send(r,400,{error:'escolha o que apagar'});
