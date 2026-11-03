@@ -164,7 +164,7 @@ n.forEach(m=>X('INSERT INTO alerts(uid,msg,at) VALUES(?,?,?)',uid,m,now));return
 // ================= SALAS EM TEMPO REAL (lobby, chat, casas) — SSE, sem dependências =================
 // Cliente abre GET /api/rt?room=lobby3 (fluxo SSE, com Authorization) e envia POST /api/rt/send.
 const LOBBY_MAX=+process.env.LOBBY_MAX||20,LOBBY_VIP=+process.env.LOBBY_VIP_MAX||40;const ROOMS=new Map(),RTM={max:+process.env.ROOM_MAX||120,perUser:3,flushMs:400};let peerSeq=0;
-const ROOM_RE=/^(lobby\d{1,2}|home[\w:]{1,16})$/,EV_OK=new Set(['chat','knock','knockr','hbuy','hbuyr','hit','kill']);
+const ROOM_RE=/^(lobby\d{1,4}|home[\w:]{1,16})$/,EV_OK=new Set(['chat','knock','knockr','hbuy','hbuyr','hit','kill']);
 const sseW=(res,ev,d)=>{try{res.write('event: '+ev+'\ndata: '+JSON.stringify(d)+'\n\n')}catch(e){}};
 function rtFlush(rm){rm.timer=null;if(!rm.peers.size){ROOMS.delete(rm.n);return}
  const u=[...rm.dirty].map(id=>rm.peers.get(id)).filter(Boolean).map(p=>({peer:p.id,presence:p.presence,kind:'viewer'})),d=[...rm.gone];rm.dirty.clear();rm.gone.length=0;
