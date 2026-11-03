@@ -125,7 +125,7 @@ function gvSettle(){try{const now=Date.now();for(const w of Q("SELECT * FROM gvw
  aOp(W,{t:'gw',cur:w.cur,n:w.q*2,win:1,m:`🏆 VITÓRIA na guerra contra [${aw?w.bt:w.at}] ${ln}! Você recebeu ${w.q*2} ${w.cur==='orc'?'♦️':'💠'} (sua cota + a da guilda adversária).`});aOp(Lz,{t:'gw',cur:w.cur,n:0,win:0,m:`💀 DERROTA na guerra contra [${aw?w.at:w.bt}] ${wn}. A cota foi perdida.`});msgTo(W,`🏆 Guerra #${w.id}: sua guilda venceu!`,'GVG');msgTo(Lz,`💀 Guerra #${w.id}: sua guilda perdeu.`,'GVG')}}catch(e){console.error('gvSettle',e)}}
 setInterval(gvSettle,30000);setTimeout(gvSettle,7000);
 db.exec('CREATE TABLE IF NOT EXISTS gvsreg(w INT,g TEXT COLLATE NOCASE,t TEXT,ic TEXT,uid INT,ros TEXT,at INT,PRIMARY KEY(w,g))');
-db.exec('CREATE TABLE IF NOT EXISTS devops(id INTEGER PRIMARY KEY,uid INT,op TEXT,at INT,done INT DEFAULT 0)');
+db.exec('CREATE TABLE IF NOT EXISTS wboss(k TEXT PRIMARY KEY,f REAL DEFAULT 0,d INT DEFAULT 0,lk TEXT)');db.exec('CREATE TABLE IF NOT EXISTS wbdmg(k TEXT,uid INT,dm REAL,name TEXT,gd TEXT,PRIMARY KEY(k,uid))');db.exec('CREATE TABLE IF NOT EXISTS devops(id INTEGER PRIMARY KEY,uid INT,op TEXT,at INT,done INT DEFAULT 0)');
 try{db.exec('ALTER TABLE users ADD COLUMN ep INT DEFAULT 0')}catch(e){}
 for(const c of ['gsub TEXT','email TEXT','tsalt TEXT','thash TEXT','texp INT DEFAULT 0','gexp INT DEFAULT 0','pid INT'])try{db.exec('ALTER TABLE users ADD COLUMN '+c)}catch(e){}
 try{db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_gsub ON users(gsub) WHERE gsub IS NOT NULL')}catch(e){}
@@ -172,6 +172,11 @@ function rtFlush(rm){rm.timer=null;if(!rm.peers.size){ROOMS.delete(rm.n);return}
 function rtMark(rm,id,gone){if(gone){rm.gone.push(id);rm.dirty.delete(id)}else rm.dirty.add(id);if(!rm.timer)rm.timer=setTimeout(()=>rtFlush(rm),RTM.flushMs)}
 function rtDrop(rm,p){if(!rm.peers.delete(p.id))return;clearInterval(p.hb);try{p.res.end()}catch(e){}rtMark(rm,p.id,1)}
 const rtBucket=(p,n,ms)=>{const t=Date.now();p.rl=(p.rl||{});const a=(p.rl[n]=(p.rl[n]||[]).filter(x=>t-x<ms));a.push(t);return a.length};
+
+// ===== Boss Mundiais compartilhados (Rainha Formiga CH3 / Sleifer CH10): vida global, dano por jogador, drop p/ maior dano =====
+const WBK={ant:{n:'🐜 Rainha Formiga Mundial',rs:864e5},sl:{n:'🐉 Sleifer, the Malignant Dragon',rs:7*864e5}},wbLast=new Map();
+const wbSt=k=>{let w=Q1('SELECT k,f,d,lk FROM wboss WHERE k=?',k);if(!w){X('INSERT INTO wboss(k,f,d) VALUES(?,0,0)',k);w={k,f:0,d:0,lk:null}}if(w.d&&Date.now()>=w.d){X('UPDATE wboss SET d=0,f=0 WHERE k=?',k);w.d=0;w.f=0}return w};
+const wbPub=(k,uid)=>{const w=wbSt(k),top=Q('SELECT name,gd,dm FROM wbdmg WHERE k=? ORDER BY dm DESC LIMIT 3',k),me=uid?Q1('SELECT dm FROM wbdmg WHERE k=? AND uid=?',k,uid):null;return{f:Math.min(1,w.f||0),d:w.d||0,lk:w.lk||'',top:top.map(t=>({n:t.name,g:t.gd||'',p:Math.round(t.dm*1000)/10})),my:me?Math.round(me.dm*1000)/10:0}};
 const rtRoutes={
  'GET /api/rt'(q,r,url){const u=user(q);if(!u)return send(r,401,{});const room=String(url.searchParams.get('room')||'');if(!ROOM_RE.test(room))return send(r,400,{error:'sala inválida'});
   let rm=ROOMS.get(room);if(!rm){rm={n:room,peers:new Map(),dirty:new Set(),gone:[],timer:null};ROOMS.set(room,rm)}
@@ -228,6 +233,18 @@ const rtRoutes={
   if(cmd==='diamantes'||cmd==='oricalco')X('INSERT INTO credits(uid,dia,orc,note,at) VALUES(?,?,?,?,?)',t.id,cmd==='diamantes'?qtd:0,cmd==='oricalco'?qtd:0,note,Date.now());
   else{const op=cmd==='levelup'?{t:'lv',n:qtd}:cmd==='gold'?{t:'gold',n:qtd}:cmd==='bau'?{t:'bau',d:arg,n:qtd}:{t:'pj',r:arg,n:qtd};X('INSERT INTO devops(uid,op,at) VALUES(?,?,?)',t.id,JSON.stringify(op),Date.now());}
   send(r,200,{ok:1,id:t.pid||t.id,name:t.name})},
+ async 'GET /api/wb'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,{now:Date.now(),ant:wbPub('ant',u.id),sl:wbPub('sl',u.id)})},
+ async 'POST /api/wb/hit'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),k=String(b.k||'');if(!WBK[k])return send(r,400,{error:'boss inválido'});const now=Date.now();let w=wbSt(k);if(w.d>now)return send(r,200,{now,[k]:wbPub(k,u.id)});
+  const lk=u.id+k,last=wbLast.get(lk)||0;if(now-last<1800)return send(r,429,{});wbLast.set(lk,now);if(wbLast.size>5000)wbLast.clear();
+  const df=Math.max(0,Math.min(.03,+b.df||0)),fin=!!b.kill&&(w.f||0)>=.95;if(!(df>0)&&!fin)return send(r,200,{now,[k]:wbPub(k,u.id)});
+  const gd=String(b.gd||'').replace(/[<>&|"'`]/g,'').slice(0,34),pn=(Q1('SELECT pn FROM profiles WHERE uid=?',u.id)||{}).pn||u.name;
+  if(df>0)X('INSERT INTO wbdmg(k,uid,dm,name,gd) VALUES(?,?,?,?,?) ON CONFLICT(k,uid) DO UPDATE SET dm=dm+excluded.dm,name=excluded.name,gd=excluded.gd',k,u.id,df,String(pn).slice(0,24),gd);
+  const nf=fin?1:Math.min(1,(w.f||0)+df);
+  if(nf>=1){const top=Q1('SELECT uid,name,gd,dm FROM wbdmg WHERE k=? ORDER BY dm DESC LIMIT 1',k)||{uid:u.id,name:pn,gd,dm:0},d=now+WBK[k].rs,txt=WBK[k].n+' foi derrotado! Maior dano: '+top.name+(top.gd?' · 🏰 Guilda '+top.gd:'')+' (leva o drop).';
+   X('UPDATE wboss SET f=0,d=?,lk=? WHERE k=?',d,top.name,k);X('DELETE FROM wbdmg WHERE k=?',k);X('INSERT INTO devops(uid,op,at) VALUES(?,?,?)',top.uid,JSON.stringify({t:'wbd',k,n:1}),now);
+   X('INSERT INTO announces(uid,name,txt,k,at) VALUES(?,?,?,?,?)',0,'BOSS MUNDIAL',txt.replace(/[<>&|]/g,'').slice(0,160),'mt',now)}
+  else X('UPDATE wboss SET f=? WHERE k=?',nf,k);
+  send(r,200,{now,[k]:wbPub(k,u.id),killed:nf>=1?1:0})},
  async 'GET /api/ops'(q,r){const u=user(q);if(!u)return send(r,401,{});const rows=Q('SELECT id,op FROM devops WHERE uid=? AND done=0 ORDER BY id LIMIT 50',u.id);const ops=[];rows.forEach(w=>{try{ops.push(JSON.parse(w.op))}catch(e){}X('UPDATE devops SET done=1 WHERE id=?',w.id)});if(ops.length)X('UPDATE users SET gexp=? WHERE id=?',Date.now()+180000,u.id);send(r,200,{ops})},
  'GET /api/auc'(q,r){const u=user(q);if(!u)return send(r,401,{});aSettle();const rows=Q('SELECT * FROM auc WHERE done=0 ORDER BY end LIMIT 150');const list=[];rows.forEach(a=>{try{list.push({id:a.id,sn:a.sname,k:a.kind,it:JSON.parse(a.item),cur:a.cur,mode:a.mode,price:a.price,t0:a.t0,end:a.end,bid:a.bid,me:a.bidder===u.id?1:0,mine:a.seller===u.id?1:0})}catch(e){}});send(r,200,{list,now:Date.now()})},
  async 'POST /api/auc/new'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),k=b.k==='c'||b.k==='e'||b.k==='r'?b.k:'',cur=String(b.cur||''),mode=b.mode==='fix'?'fix':'bid',dur=+b.dur===24?24:12;let price=+b.price;
@@ -393,7 +410,7 @@ async 'POST /api/admin/unlock'(q,r){if(!isAdmin(q))return send(r,403,{});const b
 async 'POST /api/admin/dev'(q,r){if(!isAdmin(q))return send(r,403,{});const b=await body(q);X('UPDATE users SET dev=? WHERE id=?',b.dev?1:0,+b.id);send(r,200,{ok:1})},
 async 'POST /api/admin/ban'(q,r){if(!isAdmin(q))return send(r,403,{});const b=await body(q);X('UPDATE users SET banned=? WHERE id=?',b.ban?1:0,+b.id);if(b.ban)X('DELETE FROM sessions WHERE uid=?',+b.id);send(r,200,{ok:1})},
 async 'POST /api/admin/reset'(q,r){if(!isAdmin(q))return send(r,403,{});const b=await body(q);if(b.confirm!=='RESET')return send(r,400,{error:'digite RESET'});
- ['saves','hist','ids','wday','credits','announces','alerts'].forEach(t=>X('DELETE FROM '+t));X('UPDATE users SET locked=0');
+ ['saves','hist','ids','wday','credits','announces','alerts','wboss','wbdmg'].forEach(t=>X('DELETE FROM '+t));X('UPDATE users SET locked=0');
  const ep=String(Date.now());X("INSERT OR REPLACE INTO meta(k,v) VALUES('epoch',?)",ep);send(r,200,{ok:1,epoch:ep,users:Q1('SELECT COUNT(*) n FROM users').n})},
 async 'POST /api/admin/wipe'(q,r){if(!isAdmin(q))return send(r,403,{});const b=await body(q);const P=new Set(Array.isArray(b.parts)?b.parts:[]);
  if(!P.size)return send(r,400,{error:'escolha o que apagar'});
