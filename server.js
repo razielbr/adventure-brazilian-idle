@@ -42,7 +42,7 @@ function login(uid){const t=crypto.randomBytes(32).toString('hex');X('INSERT INT
 function summarize(st){const ch=Array.isArray(st.chars)?st.chars:[];return{maxLv:ch.reduce((m,c)=>Math.max(m,c.lv|0),0),sumLv:ch.reduce((m,c)=>m+(c.lv|0),0),chars:ch.length,gold:st.gold|0,orc:st.orc|0,stage:st.stage|0}}
 // ---- Anti-clonagem: cada item/personagem tem um uid. O servidor registra o dono na 1ª vez que vê o uid.
 // Se o mesmo uid aparece em outra conta, ou volta depois de ter sumido (save antigo restaurado), é clone: o item é removido do save e vira alerta.
-const UID_RE=/^[0-9a-f]{16}$/,ITEM_KEYS=['eqs','runes','pots'];
+const UID_RE=/^[0-9a-f]{16}$/,ITEM_KEYS=['eqs','runes','pots','books'];
 // Mundos IDLE/LOBBY: os itens do mundo que não está ativo ficam em st.W[mundo]; contam como presentes (senão trocar de mundo marcaria tudo como "gasto" e apagaria ao voltar).
 function worldsOf(st){const o=[st];if(st&&st.W&&typeof st.W==='object')Object.values(st.W).forEach(w=>{if(w&&typeof w==='object')o.push(w)});return o}
 function collectUids(st){const o=[];worldsOf(st).forEach(w=>{ITEM_KEYS.forEach(k=>{(Array.isArray(w[k])?w[k]:[]).forEach(x=>{if(x&&UID_RE.test(x.uid))o.push([x.uid,k])})});(Array.isArray(w.chars)?w.chars:[]).forEach(c=>{if(c&&UID_RE.test(c.uid))o.push([c.uid,'chars'])})});return o}
@@ -103,7 +103,8 @@ const gdInvs=(uid,w)=>{const now=Date.now(),L=(GINV.get(uid)||[]).filter(x=>now-
 function gdState(u,w){const m=gdMe(u.id,w),inv=gdInvs(u.id,w);if(!m)return{g:'',inv};
  const mem=Q(`SELECT m.uid uid,m.rk rk,m.lv lv,m.pw pw,m.k k,COALESCE(p.pn,us.name) n,p.vip vp,p.nc nc,p.nc2 nc2,p.nm nmm,p.ff ff FROM gdm m JOIN users us ON us.id=m.uid LEFT JOIN profiles p ON p.uid=m.uid WHERE m.w=? AND m.g=? ORDER BY m.rk,m.lv DESC`,w,m.g);
  const gk=mem.reduce((a,x)=>a+(x.k|0),0);
- return{g:m.g,rk:m.rk,open:m.open|0,minlv:m.minlv|0,ic:m.ic||'',gk,cap:GDCAP,inv,mem:mem.map(x=>({uid:x.uid,n:x.n,rk:x.rk,lv:x.lv,pw:x.pw,k:x.k,me:x.uid===u.id?1:0,st:x.vp&&(x.nmm||x.nc||x.ff)?[x.nmm||'',x.nc||'',x.nc2||'',x.ff||'']:undefined}))}}
+ const OL=new Map();for(const rm of ROOMS.values())for(const p of rm.peers.values())if(!OL.has(p.uid))OL.set(p.uid,rm.n);
+ return{g:m.g,rk:m.rk,open:m.open|0,minlv:m.minlv|0,ic:m.ic||'',gk,cap:GDCAP,inv,mem:mem.map(x=>({uid:x.uid,n:x.n,rk:x.rk,lv:x.lv,pw:x.pw,k:x.k,me:x.uid===u.id?1:0,on:OL.has(x.uid)?1:0,ch:OL.has(x.uid)?(/^lobby/.test(OL.get(x.uid))?+OL.get(x.uid).slice(5):13):0,st:x.vp&&(x.nmm||x.nc||x.ff)?[x.nmm||'',x.nc||'',x.nc2||'',x.ff||'']:undefined}))}}
 const gdCount=(w,g)=>Q1('SELECT COUNT(*) n FROM gdm WHERE w=? AND g=?',w,g).n;
 const gdAdd=(w,g,uid,lv)=>X('INSERT OR REPLACE INTO gdm(w,g,uid,rk,lv,pw,k,at) VALUES(?,?,?,3,?,0,0,?)',w,g,uid,gdN(lv,1,99999),Date.now());
 
