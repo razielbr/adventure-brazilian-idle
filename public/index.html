@@ -1747,7 +1747,7 @@ function rcOK(){const g=S.gd;if(!g||(S.wd||'I')!=='L')return false;let dv=false;
 function rcBtn(){return rcOK()?'<button id="rcb" onclick="window.__rcStart&&window.__rcStart()" title="Só o líder, guilda nv 20+. Carrega 6s e chama todos os membros da guilda para onde você está. Recarga: 30 min." style="border:2px solid #ff5a5a;font-weight:700">📣 Recall Urgente!!!</button>':''}
 function rcLabel(T){if(RCL.chg)return '📣 Chamando… '+Math.ceil(Math.max(0,RCL.chg.end-T)/1000)+'s';const l=RCL.cd-Date.now();if(l>0){const m=Math.floor(l/6e4),s=Math.floor(l%6e4/1000);return '📣 Recall em '+m+':'+String(s).padStart(2,'0')}return '📣 Recall Urgente!!!'}
 function bcPos(n){const L=[16,48,80,112],o=[];for(const y of L)for(const x of L)o.push([x*n/128,y*n/128]);return o}
-const ASPD={per:.0004,cap:1},ASC={};
+const ASPD={per:.0012,cap:3},ASC={};
 function aSpd(cc){try{if(!cc)return 1;const k=(cc.id||0)+'|'+cc.lv,n=Date.now(),e=ASC[k];if(e&&n-e.t<3000)return e.v;const st=stats(cc),lg=CLS[cc.sp]===MAG||isLong(cc),v=1+Math.min(ASPD.cap,Math.max(0,(lg?st.DEX:st.AGI)||0)*ASPD.per);ASC[k]={t:n,v};return v}catch(e){return 1}}
 /* Defesa no MMORPG: VIT reduz dano FÍSICO recebido, INT reduz dano MÁGICO recebido (mesma curva do IDLE: v/(v+2000), máx 60%). Sleifer: mordida = física; área de fogo e Nevasca = mágicas. Rainha: tudo físico. */
 const DFC={};
@@ -2323,7 +2323,7 @@ const T={
 12:{r:47,sc:SC.hm,bpm:124,ch:P3,mo:[0,2,0,3,2,0,-1,0],ld:'brass',bs:1,dr:'war',arp:0},
 13:{r:60,sc:SC.ion,bpm:80,ch:P1,mo:[0,2,4,null,2,4,5,null],ld:'lute',bs:1,dr:'soft',arp:1},
 14:{r:62,sc:SC.mix,bpm:92,ch:P2,mo:[4,5,4,2,null,4,2,0],ld:'harp',bs:1,dr:'hand',arp:1},
-15:{r:62,sc:SC.ion,bpm:100,ch:P1,mo:[0,4,2,4,5,null,4,7],ld:'brass',bs:1,dr:'hand',pad:1,arp:0},
+15:{r:43,sc:SC.mix,bpm:172,ch:[0,0,3,3,0,0,4,3],mo:[7,9,7,5,7,11,9,7],ld:'org',bs:0,dr:'none',pad:0,arp:0,rk:{rf:[0,0,2,0,0,4,2,0],gv:.27,dr:'rock',bs8:1,str:0,ti:[0,0,0,0,0,0,0,1]}},
 d1:{r:57,sc:SC.mix,bpm:116,ch:[0,3,4,0,0,5,4,0],mo:[0,2,4,2,5,4,2,null],ld:'brass',bs:1,dr:'hand',arp:1,rk:{str:1,ti:[1,0,0,0,1,0,0,0]}},
 d2:{r:52,sc:SC.dor,bpm:126,ch:P2,mo:[0,0,2,null,3,2,0,-1],ld:'brass',bs:1,dr:'war',rk:{str:1,ti:[1,0,0,1,0,0,1,0],rf:[0,null,0,null,0,null,3,null],gv:.12}},
 d3:{r:47,sc:SC.phr,bpm:138,ch:[0,1,0,3,0,1,4,0],mo:[0,1,0,3,2,null,1,0],ld:'brass',bs:1,dr:'none',rk:{rf:[0,0,null,0,3,null,0,1],gv:.2,dr:'rock',str:1,ti:[1,0,0,0,0,0,1,0]}},
