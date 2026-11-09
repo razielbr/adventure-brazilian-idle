@@ -3740,69 +3740,71 @@ if(r.previousElementSibling!==b)b.parentNode.insertBefore(r,b.nextSibling);const
 g.onpointerdown=ev=>{ev.preventDefault();ev.stopPropagation();const r=e.getBoundingClientRect(),x0=ev.clientX,y0=ev.clientY,w0=r.width,h0=r.height,P=e.parentElement,mx=P?P.clientWidth-e.offsetLeft:900;g.setPointerCapture(ev.pointerId);g.onpointermove=m=>{e.style.width=Math.max(190,Math.min(mx,w0+m.clientX-x0))+'px';e.style.height=Math.max(112,Math.min(400,h0+m.clientY-y0))+'px'};g.onpointerup=()=>{g.onpointermove=null;g.onpointerup=null}};
 g.addEventListener('pointerdown',ev=>ev.stopPropagation());e.appendChild(g)}catch(x){}},700)}catch(e){console.error('v1045',e)}})();
 
-/* ===== MAPX: mapas em camadas (platôs, rampas, penhascos, muralhas) para o lobby isométrico =====
-   API:  MAPX.gen({N,HC,seed,keep?}) -> mapa   |  MAPX.h(m,gx,gy) altura (em níveis) no ponto de chão (gx=x+.5)
-         MAPX.solid(m,x,y) bloqueio (borda de penhasco/muralha)  |  MAPX.pick(m,mx,my,ox,oy,inv) clique -> tile considerando altura
+/* ===== MAPX: mapas em camadas estilo blocos (voxel) para o lobby isométrico =====
+   API:  MAPX.gen({N,HC,seed,keep?,blobs?}) -> mapa  |  MAPX.h(m,gx,gy) altura (níveis) no ponto de chão (gx=x+.5)
+         MAPX.solid(m,x,y) bloqueio (borda de penhasco, muralha, árvore)  |  MAPX.pick(...) clique -> tile considerando altura
          MAPX.items(m,ctx) empurra os blocos visíveis na lista de desenho (ordenados por profundidade com as entidades)
-   Para criar outros mapas: chame MAPX.gen com outro seed/keep (função (x,y)=>true se a área deve ficar livre). */
+   Outros mapas: chame MAPX.gen com outro seed/keep (função (x,y)=>true = área livre de relevo). */
 window.MAPX=(()=>{
-const LV=38,MAXL=3;
+const LV=38,MAXL=4,STEP=4;
 const rnd=s=>()=>(s=(s*16807)%2147483647)/2147483647;
 const vn=(x,y,s)=>{const f=(a,b)=>{const n=Math.sin(a*127.1+b*311.7+s*74.7)*43758.5453;return n-Math.floor(n)};const ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy,u=fx*fx*(3-2*fx),v=fy*fy*(3-2*fy);return(f(ix,iy)*(1-u)+f(ix+1,iy)*u)*(1-v)+(f(ix,iy+1)*(1-u)+f(ix+1,iy+1)*u)*v};
 function gen(o){
  const N=o.N,HC=o.HC||N/2,R=rnd(o.seed||1),M=6;
  const keep=o.keep||((x,y)=>{const dx=Math.abs(x-HC),dy=Math.abs(y-HC);return (dx<30&&dy<30)||dy<9||dx<9||Math.abs(y-(HC-12.5))<4.5||Math.abs(y-(HC+12.5))<4.5});
- const lvl=new Uint8Array(N*N),solid=new Uint8Array(N*N),rid=new Uint8Array(N*N),ramps=[],blobs=[],ix=(x,y)=>y*N+x;
+ const lvl=new Uint8Array(N*N),solid=new Uint8Array(N*N),rid=new Uint8Array(N*N),tree=new Uint8Array(N*N),ramps=[],blobs=[],ix=(x,y)=>y*N+x;
  const okc=(x,y)=>x>=M&&y>=M&&x<N-M&&y<N-M&&!keep(x,y);
- const paint=(b,L)=>{b.cells=[];for(let y=Math.floor(b.cy-b.ry-2);y<=b.cy+b.ry+2;y++)for(let x=Math.floor(b.cx-b.rx-2);x<=b.cx+b.rx+2;x++){if(!okc(x,y))continue;const nx=(x-b.cx)/b.rx,ny=(y-b.cy)/b.ry,d=nx*nx+ny*ny+(vn(x*.28,y*.28,b.s)-.5)*.55;if(d<1&&lvl[ix(x,y)]<L){lvl[ix(x,y)]=L;b.cells.push(ix(x,y))}}b.L=L};
- // nível 1: platôs/colinas
- const t1=[];for(let k=0;k<90&&t1.length<(o.blobs||16);k++){const rx=6+R()*8,ry=6+R()*8,cx=M+rx+R()*(N-2*M-2*rx),cy=M+ry+R()*(N-2*M-2*ry);if(!okc(Math.round(cx),Math.round(cy)))continue;if(t1.some(b=>Math.hypot(b.cx-cx,b.cy-cy)<(b.rx+rx)*.9+5))continue;const b={cx,cy,rx,ry,s:k*3.1,tier:1,par:null};paint(b,1);if(b.cells.length<40){b.cells.forEach(i=>lvl[i]=0);continue}t1.push(b);blobs.push(b)}
- // nível 2 e 3 aninhados
- t1.forEach(p=>{if(p.rx>=8&&p.ry>=7&&R()<.85){const b={cx:p.cx+(R()-.5)*3,cy:p.cy+(R()-.5)*3,rx:p.rx*.5,ry:p.ry*.5,s:p.s+9,tier:2,par:p};paint(b,2);if(b.cells.length<20){b.cells.forEach(i=>lvl[i]=1);}else{blobs.push(b);if(b.rx>=4.6&&R()<.7){const c={cx:b.cx,cy:b.cy,rx:b.rx*.52,ry:b.ry*.52,s:b.s+5,tier:3,par:b};paint(c,3);if(c.cells.length<9){c.cells.forEach(i=>lvl[i]=2)}else blobs.push(c)}}}});
+ const paint=(b,L)=>{b.cells=[];for(let y=Math.floor(b.cy-b.ry-2);y<=b.cy+b.ry+2;y++)for(let x=Math.floor(b.cx-b.rx-2);x<=b.cx+b.rx+2;x++){if(!okc(x,y))continue;const nx=(x-b.cx)/b.rx,ny=(y-b.cy)/b.ry,d=nx*nx+ny*ny+(vn(x*.28,y*.28,b.s)-.5)*.5;if(d<1&&lvl[ix(x,y)]<L){lvl[ix(x,y)]=L;b.cells.push(ix(x,y))}}b.L=L};
+ const t1=[];for(let k=0;k<160&&t1.length<(o.blobs||22);k++){const rx=5+R()*8,ry=5+R()*8,cx=M+rx+R()*(N-2*M-2*rx),cy=M+ry+R()*(N-2*M-2*ry);if(!okc(Math.round(cx),Math.round(cy)))continue;if(t1.some(b=>Math.hypot(b.cx-cx,b.cy-cy)<(b.rx+rx)*.85+4))continue;const b={cx,cy,rx,ry,s:k*3.1,tier:1,par:null};paint(b,1);if(b.cells.length<36){b.cells.forEach(i=>lvl[i]=0);continue}t1.push(b);blobs.push(b)}
+ const nest=(p,tier,minR,f,chance)=>{if(p.rx>=minR&&p.ry>=minR*.85&&R()<chance){const b={cx:p.cx+(R()-.5)*2.5,cy:p.cy+(R()-.5)*2.5,rx:p.rx*f,ry:p.ry*f,s:p.s+9+tier,tier,par:p};paint(b,tier);if(b.cells.length<(tier>=3?9:16)){b.cells.forEach(i=>lvl[i]=tier-1);return null}blobs.push(b);return b}return null};
+ t1.forEach(p=>{const b2=nest(p,2,6.5,.58,.9);if(b2){const b3=nest(b2,3,4.4,.56,.8);if(b3)nest(b3,4,3.4,.5,.6)}});
  const lowerB=b=>{b.cells.forEach(i=>{if(lvl[i]===b.L)lvl[i]=b.L-1});b.dead=1;blobs.forEach(c=>{if(c.par===b&&!c.dead)lowerB(c)})};
  const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
  const at=(x,y)=>x<0||y<0||x>=N||y>=N?-1:lvl[ix(x,y)];
- // rampas: tiers de baixo para cima
- for(let tier=1;tier<=3;tier++)blobs.filter(b=>b.tier===tier&&!b.dead).forEach(b=>{let made=0;const cx0=Math.round(b.cx),cy0=Math.round(b.cy),ord=DIRS.slice().sort(()=>R()-.5);
+ // escadas (4 degraus por nível), tiers de baixo para cima
+ for(let tier=1;tier<=MAXL;tier++)blobs.filter(b=>b.tier===tier&&!b.dead).forEach(b=>{let made=0;const cx0=Math.round(b.cx),cy0=Math.round(b.cy),ord=DIRS.slice().sort(()=>R()-.5);
   for(const [dx,dy] of ord){if(made>=2)break;let t=0;while(t<60&&at(cx0+dx*t,cy0+dy*t)===b.L)t++;t--;if(t<3)continue;const px=-dy,py=dx;let ok=true;const cells=[];
-   for(let s=t-2;s<=t+3&&ok;s++)for(let k=-1;k<=1;k++){const x=cx0+dx*s+px*k,y=cy0+dy*s+py*k;const L=at(x,y);if(s<=t&&L!==b.L)ok=false;else if(s>t&&L!==b.L-1)ok=false;else if(rid[ix(x,y)])ok=false;else if(x<M||y<M||x>=N-M||y>=N-M)ok=false;else cells.push([x,y])}
-   if(!ok)continue;const axx=dx!==0,idx=ramps.length+1;if(idx>250)break;const sMin=Math.min(t-2,t+3),sMax=Math.max(t-2,t+3);
-   const pos=s=>axx?cx0+dx*s:cy0+dy*s,aMin=Math.min(pos(t-2),pos(t+3)),aMax=Math.max(pos(t-2),pos(t+3));
-   const lowAtMax=(axx?dx:dy)>0;ramps.push({ax:axx?'x':'y',lo:lowAtMax?aMax+1:aMin,hi:lowAtMax?aMin:aMax+1,hL:b.L-1,hH:b.L,w:b.L});
+   for(let s=t-1;s<=t+2&&ok;s++)for(let k=-1;k<=1;k++){const x=cx0+dx*s+px*k,y=cy0+dy*s+py*k;const L=at(x,y);if(s<=t&&L!==b.L)ok=false;else if(s>t&&L!==b.L-1)ok=false;else if(rid[ix(x,y)])ok=false;else if(x<M||y<M||x>=N-M||y>=N-M)ok=false;else cells.push([x,y])}
+   if(!ok)continue;const axx=dx!==0,idx=ramps.length+1;if(idx>250)break;
+   const pos=s=>axx?cx0+dx*s:cy0+dy*s,aMin=Math.min(pos(t-1),pos(t+2)),aMax=Math.max(pos(t-1),pos(t+2));
+   const lowAtMax=(axx?dx:dy)>0;ramps.push({ax:axx?'x':'y',lo:lowAtMax?aMax+1:aMin,hi:lowAtMax?aMin:aMax+1,hL:b.L-1,hH:b.L});
    cells.forEach(([x,y])=>{rid[ix(x,y)]=idx});made++}
   if(!made){lowerB(b)}});
- // bordas bloqueadas (penhasco / muralha), exceto rampas
  for(let y=0;y<N;y++)for(let x=0;x<N;x++){const L=lvl[ix(x,y)];if(!L||rid[ix(x,y)])continue;if(at(x+1,y)<L||at(x-1,y)<L||at(x,y+1)<L||at(x,y-1)<L)solid[ix(x,y)]=1}
- // lista de células desenháveis
+ // árvores de blocos nos platôs (bloqueiam passagem); longe das escadas e bordas
+ const nearR=(x,y,d)=>{for(let j=-d;j<=d;j++)for(let i=-d;i<=d;i++){const X=x+i,Y=y+j;if(X>=0&&Y>=0&&X<N&&Y<N&&rid[ix(X,Y)])return true}return false};
+ for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){const i=ix(x,y),L=lvl[i];if(!L||L>=3||solid[i]||rid[i])continue;const hh=((x*73856093)^(y*19349663))>>>0;if(hh%19!==0)continue;if(at(x+1,y)<L||at(x-1,y)<L||at(x,y+1)<L||at(x,y-1)<L||at(x+1,y+1)<L||at(x-1,y-1)<L||at(x+1,y-1)<L||at(x-1,y+1)<L)continue;if(nearR(x,y,2))continue;tree[i]=1;solid[i]=1}
  const cells=[];for(let y=0;y<N;y++)for(let x=0;x<N;x++){const i=ix(x,y);if(lvl[i]||rid[i])cells.push(i)}
- return{N,lvl,solid,rid,ramps,cells,blobs:blobs.filter(b=>!b.dead).length};
+ return{N,lvl,solid,rid,tree,ramps,cells,blobs:blobs.filter(b=>!b.dead).length};
 }
 const rh=(r,gx,gy)=>{const c=r.ax==='x'?gx:gy;return r.hL+(r.hH-r.hL)*Math.max(0,Math.min(1,(c-r.lo)/(r.hi-r.lo)))};
-// altura (em níveis) no ponto de chão (gx,gy); a célula é floor(g)
 function h(m,gx,gy){if(!m)return 0;const x=Math.floor(gx),y=Math.floor(gy);if(x<0||y<0||x>=m.N||y>=m.N)return 0;const i=y*m.N+x,r=m.rid[i];return r?rh(m.ramps[r-1],gx,gy):m.lvl[i]}
-const cellH=(m,i,gx,gy)=>{const r=m.rid[i];return r?rh(m.ramps[r-1],gx,gy):m.lvl[i]};
+// altura desenhada (degraus de 1/4 de nível nas escadas)
+const cellTop=(m,i,x,y)=>{const r=m.rid[i];if(!r)return m.lvl[i];const rp=m.ramps[r-1],c=rp.ax==='x'?x+.5:y+.5,f=Math.max(0,Math.min(1,(c-rp.lo)/(rp.hi-rp.lo)));return rp.hL+(rp.hH-rp.hL)*Math.ceil(f*STEP-1e-6)/STEP};
 function solid(m,x,y){if(!m)return false;const cx=Math.floor(x+.5),cy=Math.floor(y+.5);if(cx<0||cy<0||cx>=m.N||cy>=m.N)return false;return m.solid[cy*m.N+cx]===1}
-// clique -> coordenadas de tile (mesma convenção do jogo) levando em conta a altura
 function pick(m,mx,my,ox,oy,inv){if(!m)return inv(mx,my);for(let hc=MAXL+.5;hc>=0;hc-=.25){const q=inv(mx,my+hc*LV);const gx=q[0]+.5,gy=q[1]+.5;if(Math.abs(h(m,gx,gy)-hc)<.3){const x=Math.floor(gx),y=Math.floor(gy);if(x>=0&&y>=0&&x<m.N&&y<m.N&&(m.lvl[y*m.N+x]||m.rid[y*m.N+x])||hc===0)return q}}return inv(mx,my)}
-const TOP=['#4f7d3a','#5f9040','#6fa24a','#a7a79c'],ALT=['#4b7837','#5a8a3c','#69993f','#9c9c92'],DIRT='#9b7c4e',DIRT2='#8d6f44',ROCK=['#7b6a54','#8a7860','#8f8f98'],ROCKD=['#4a3f32','#54483a','#575761'];
-function items(m,c){if(!m)return;const{g,pj,ox,oy,zf,ux,uy,W,H,items:it,CC,CS,T}=c,N=m.N,x0=ux(0)-120,x1=ux(W)+120,y0=uy(0)-160,y1=uy(H)+220;
+const GR=[['#5b9a3c','#4f8a34'],['#66a844','#5a9a3c'],['#a9a79c','#9c9a90'],['#b8b6aa','#aaa89c'],['#c6c4b8','#b8b6aa']],GL='#3f7a2a',DIRT=['#9a7347','#8a6540'],DIRTD='#6b4c2e',STONE=['#8d8f9a','#7b7d88'],STONED='#56586a',PATH=['#b08a54','#a37d49'];
+function cube(g,X,Y,hw,hh,hp,top,lf,rt){g.fillStyle=top;g.beginPath();g.moveTo(X,Y-hh);g.lineTo(X+hw,Y);g.lineTo(X,Y+hh);g.lineTo(X-hw,Y);g.closePath();g.fill();g.fillStyle=lf;g.beginPath();g.moveTo(X-hw,Y);g.lineTo(X,Y+hh);g.lineTo(X,Y+hh+hp);g.lineTo(X-hw,Y+hp);g.closePath();g.fill();g.fillStyle=rt;g.beginPath();g.moveTo(X+hw,Y);g.lineTo(X,Y+hh);g.lineTo(X,Y+hh+hp);g.lineTo(X+hw,Y+hp);g.closePath();g.fill()}
+function items(m,c){if(!m)return;const{g,pj,ox,oy,zf,ux,uy,W,H,items:it,CC,CS}=c,N=m.N,x0=ux(0)-120,x1=ux(W)+120,y0=uy(0)-200,y1=uy(H)+260;
  const P=(x,y,hh)=>{const q=pj(x,y,ox,oy);return[q[0],q[1]-hh*LV]};
  for(let k=0;k<m.cells.length;k++){const i=m.cells[k],x=i%N,y=(i-x)/N,q=pj(x+.5,y+.5,ox,oy);if(q[0]<x0||q[0]>x1||q[1]<y0||q[1]>y1+LV*MAXL)continue;
-  it.push({z:zf(x,y)-.9,k:()=>{const r=m.rid[i],L=m.lvl[i],sol=m.solid[i]===1,gh=(gx,gy)=>cellH(m,i,gx,gy);
-   const hs=[gh(x,y),gh(x+1,y),gh(x+1,y+1),gh(x,y+1)],pts=[[x,y],[x+1,y],[x+1,y+1],[x,y+1]];
-   const wall=sol&&L>=3?.75:0;
-   // faces visíveis (+x, +y e conforme rotação)
-   const sides=[[1,0,[1,2]],[0,1,[3,2]],[-1,0,[0,3]],[0,-1,[0,1]]];
-   for(const[dx,dy,ci]of sides){if(dx*(CC+CS)+dy*(CC-CS)<=0)continue;const nx=x+dx,ny=y+dy,inb=nx>=0&&ny>=0&&nx<N&&ny<N,ni=inb?ny*N+nx:-1;const a=pts[ci[0]],b=pts[ci[1]];const ta=hs[ci[0]]+wall,tb=hs[ci[1]]+wall,ba=inb?cellH(m,ni,a[0],a[1]):0,bb=inb?cellH(m,ni,b[0],b[1]):0;if(ta<=ba+.01&&tb<=bb+.01)continue;
-    const A=P(a[0],a[1],ta),B=P(b[0],b[1],tb),C2=P(b[0],b[1],bb),D=P(a[0],a[1],ba);const kk=Math.min(2,Math.max(0,(r?0:L)-1)),gr=g.createLinearGradient(0,Math.min(A[1],B[1]),0,Math.max(C2[1],D[1]));gr.addColorStop(0,L>=3?ROCK[2]:ROCK[kk>0?1:0]);gr.addColorStop(1,L>=3?ROCKD[2]:ROCKD[kk>0?1:0]);g.fillStyle=gr;g.beginPath();g.moveTo(A[0],A[1]);g.lineTo(B[0],B[1]);g.lineTo(C2[0],C2[1]);g.lineTo(D[0],D[1]);g.closePath();g.fill();
-    g.strokeStyle='rgba(20,14,8,.35)';g.lineWidth=1;const n=Math.max(1,Math.round(Math.max(ta-ba,tb-bb)*3));for(let s=1;s<n;s++){const f=s/n;g.beginPath();g.moveTo(A[0]+(D[0]-A[0])*f,A[1]+(D[1]-A[1])*f);g.lineTo(B[0]+(C2[0]-B[0])*f,B[1]+(C2[1]-B[1])*f);g.stroke()}
-    g.strokeStyle='rgba(10,8,5,.55)';g.beginPath();g.moveTo(A[0],A[1]);g.lineTo(B[0],B[1]);g.stroke()}
-   // topo
-   const T0=P(x,y,hs[0]+wall),T1=P(x+1,y,hs[1]+wall),T2=P(x+1,y+1,hs[2]+wall),T3=P(x,y+1,hs[3]+wall);
-   g.fillStyle=r?((x+y)&1?DIRT:DIRT2):(L>=3?(wall?'#8d8f9a':((x+y)&1?TOP[3]:ALT[3])):((x+y)&1?TOP[L-1]:ALT[L-1]));g.beginPath();g.moveTo(T0[0],T0[1]);g.lineTo(T1[0],T1[1]);g.lineTo(T2[0],T2[1]);g.lineTo(T3[0],T3[1]);g.closePath();g.fill();
-   if(!r&&!wall){const hh=((x*73856093)^(y*19349663))>>>0;g.strokeStyle=L>=3?'rgba(70,70,80,.35)':'rgba(30,70,20,.55)';g.lineWidth=1.2;for(let t=0;t<3;t++){const u=((hh>>(t*5))&15)/16*.8+.1,v=((hh>>(t*5+2))&15)/16*.8+.1,cxp=T0[0]+(T1[0]-T0[0])*u+(T3[0]-T0[0])*v,cyp=T0[1]+(T1[1]-T0[1])*u+(T3[1]-T0[1])*v;if(L>=3){g.strokeRect(cxp-3,cyp-1,6,2)}else{g.beginPath();g.moveTo(cxp-2,cyp);g.lineTo(cxp-3,cyp-5);g.moveTo(cxp,cyp);g.lineTo(cxp,cyp-6);g.moveTo(cxp+2,cyp);g.lineTo(cxp+3,cyp-5);g.stroke()}}}
-   if(sol&&!wall){g.fillStyle='rgba(30,40,15,.22)';g.fill();g.strokeStyle='rgba(20,28,10,.4)';g.lineWidth=1;g.stroke()}else if(wall){g.strokeStyle='rgba(30,30,40,.6)';g.stroke()}
-   else if(r){g.strokeStyle='rgba(60,40,20,.25)';g.lineWidth=1;const mid=(a,b,f)=>[a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f];for(let s=1;s<3;s++){const f=s/3,p=mid(T0,T3,f),q2=mid(T1,T2,f);g.beginPath();g.moveTo(p[0],p[1]);g.lineTo(q2[0],q2[1]);g.stroke()}}
+  it.push({z:zf(x,y)-.9,k:()=>{const r=m.rid[i],L=m.lvl[i],sol=m.solid[i]===1,tr=m.tree[i]===1,top=cellTop(m,i,x,y),wall=sol&&!tr&&L>=3?.7:0,stone=L>=3||(r&&m.ramps[r-1].hH>=3);
+   const T0=P(x,y,top+wall),T1=P(x+1,y,top+wall),T2=P(x+1,y+1,top+wall),T3=P(x,y+1,top+wall);
+   const sides=[[1,0,[1,2],T1,T2],[0,1,[3,2],T3,T2],[-1,0,[0,3],T0,T3],[0,-1,[0,1],T0,T1]];
+   for(const[dx,dy,ci,A,B]of sides){if(dx*(CC+CS)+dy*(CC-CS)<=0)continue;const nx=x+dx,ny=y+dy,inb=nx>=0&&ny>=0&&nx<N&&ny<N,ni=inb?ny*N+nx:-1,bt=inb?(m.lvl[ni]||m.rid[ni]?cellTop(m,ni,nx,ny):0):0;const tH=top+wall;if(tH<=bt+.01)continue;
+    // fatias de um nível (blocos empilhados)
+    let hi=tH,first=true;while(hi>bt+.01){const lo=Math.max(bt,Math.ceil(hi-1e-6)-1>=bt?Math.ceil(hi-1e-6)-1:bt),Ah=[A[0],A[1]+(top+wall-hi)*LV],Bh=[B[0],B[1]+(top+wall-hi)*LV],Al=[A[0],A[1]+(top+wall-lo)*LV],Bl=[B[0],B[1]+(top+wall-lo)*LV];
+     const stn=stone||wall&&hi>top+.01;g.fillStyle=stn?STONE[(x+y+(first?0:1))&1]:DIRT[(x+y+(first?0:1))&1];g.beginPath();g.moveTo(Ah[0],Ah[1]);g.lineTo(Bh[0],Bh[1]);g.lineTo(Bl[0],Bl[1]);g.lineTo(Al[0],Al[1]);g.closePath();g.fill();
+     if(!stn&&first&&!wall&&!r){g.fillStyle=GL;const lp=Math.min(.32,hi-lo);g.beginPath();g.moveTo(Ah[0],Ah[1]);g.lineTo(Bh[0],Bh[1]);g.lineTo(Bh[0],Bh[1]+lp*LV);g.lineTo(Ah[0],Ah[1]+lp*LV);g.closePath();g.fill()}
+     g.strokeStyle=stn?STONED:DIRTD;g.lineWidth=1;g.globalAlpha=.55;g.beginPath();g.moveTo(Al[0],Al[1]);g.lineTo(Bl[0],Bl[1]);g.stroke();g.beginPath();g.moveTo(Ah[0],Ah[1]);g.lineTo(Al[0],Al[1]);g.moveTo(Bh[0],Bh[1]);g.lineTo(Bl[0],Bl[1]);g.stroke();g.globalAlpha=1;
+     if(!stn&&hi-lo>.5){g.fillStyle='rgba(60,40,20,.35)';const mx=(Ah[0]+Bh[0])/2,my=(Ah[1]+Bh[1]+Al[1]+Bl[1])/4;g.fillRect(mx-2,my-1,3,2);g.fillRect(mx+5,my+3,2,2)}
+     hi=lo;first=false;if(hi<=bt+.01)break}}
+   g.fillStyle=r?PATH[(x+y)&1]:wall?STONE[(x+y)&1]:stone?GR[Math.min(4,L-1)][(x+y)&1]:GR[Math.min(1,L-1)][(x+y)&1];g.beginPath();g.moveTo(T0[0],T0[1]);g.lineTo(T1[0],T1[1]);g.lineTo(T2[0],T2[1]);g.lineTo(T3[0],T3[1]);g.closePath();g.fill();
+   g.strokeStyle='rgba(255,255,255,.14)';g.lineWidth=1;g.beginPath();g.moveTo(T3[0],T3[1]);g.lineTo(T0[0],T0[1]);g.lineTo(T1[0],T1[1]);g.stroke();g.strokeStyle='rgba(0,0,0,.2)';g.beginPath();g.moveTo(T1[0],T1[1]);g.lineTo(T2[0],T2[1]);g.lineTo(T3[0],T3[1]);g.stroke();
+   if(!r&&!wall&&!stone&&!tr){const hh=((x*73856093)^(y*19349663))>>>0;g.fillStyle='rgba(30,80,20,.45)';for(let t=0;t<3;t++){const u=((hh>>(t*5))&15)/16*.7+.15,v=((hh>>(t*5+2))&15)/16*.7+.15,cx=T0[0]+(T1[0]-T0[0])*u+(T3[0]-T0[0])*v,cy=T0[1]+(T1[1]-T0[1])*u+(T3[1]-T0[1])*v;g.fillRect(cx-2,cy-1,4,2)}}
+   if(r){g.strokeStyle='rgba(60,40,20,.35)';g.beginPath();g.moveTo(T0[0],T0[1]);g.lineTo(T1[0],T1[1]);g.stroke()}
+   if(sol&&!tr&&!wall&&!r){g.fillStyle='rgba(20,40,10,.18)';g.beginPath();g.moveTo(T0[0],T0[1]);g.lineTo(T1[0],T1[1]);g.lineTo(T2[0],T2[1]);g.lineTo(T3[0],T3[1]);g.closePath();g.fill()}
+   if(tr){const cx=(T0[0]+T2[0])/2,cy=(T0[1]+T2[1])/2,hh=((x*73856093)^(y*19349663))>>>0,big=hh%3===0;cube(g,cx,cy-2,7,3.5,22,'#6f4d2b','#5b3f23','#4a331c');const cb=cy-24;cube(g,cx,cb,big?27:23,big?13.5:11.5,18,'#6dbb45','#4f9a33','#3f8228');cube(g,cx,cb-17,big?19:16,big?9.5:8,15,'#7fd052','#5fae3a','#4a9230');if(big)cube(g,cx,cb-30,11,5.5,11,'#8fe05e','#6cbc40','#58a436')}
   }})}
 }
 return{LV,gen,h,solid,pick,items};
