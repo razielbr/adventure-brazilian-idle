@@ -3729,7 +3729,7 @@ o.querySelector('#rkx').onclick=close;
 try{pveServer()}catch(e){console.error(e)}
 iv=setInterval(()=>{try{if(typeof tab!=='undefined'&&tab!=='l'){close();return}pveServer()}catch(e){}},4000)}catch(e){console.error(e)}};
 window.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&document.getElementById('rkw')){ev.preventDefault();ev.stopImmediatePropagation();close()}},true);
-setInterval(()=>{try{const nv=document.getElementById('nav');if(nv&&dv()){nv.style.setProperty('display','flex','important');nv.querySelectorAll('details.ng').forEach(d=>{d.style.display=d.dataset.g==='d'?'':'none'})}
+setInterval(()=>{try{const nv=document.getElementById('nav');if(nv)nv.style.setProperty('display','none','important');
 const b=document.getElementById('cashBtn2');if(!b||!b.parentNode)return;let r=document.getElementById('rkBtn');if(!r){r=document.createElement('button');r.id='rkBtn';r.textContent='🏆 Ranking Boss';r.onpointerdown=e=>e.stopPropagation();r.onclick=e=>{e.stopPropagation();window.rkOpen()}}
 if(r.previousElementSibling!==b)b.parentNode.insertBefore(r,b.nextSibling);const m=document.getElementById('msgbtn');if(m&&r.nextElementSibling!==m)r.parentNode.insertBefore(m,r.nextSibling);const h=document.getElementById('lmmh');if(h&&m&&m.nextElementSibling!==h){m.parentNode.insertBefore(h,m.nextSibling);h.style.marginTop='6px'}}catch(e){}},500);
 }catch(e){console.error('v1044',e)}})();
