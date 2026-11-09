@@ -36,13 +36,31 @@ const send=(r,c,o)=>{r.writeHead(c,{'content-type':'application/json'});r.end(JS
 const body=req=>new Promise((ok,no)=>{let b='';req.on('data',d=>{b+=d;if(b.length>5e6){no(0);req.destroy()}});req.on('end',()=>{try{ok(JSON.parse(b||'{}'))}catch(e){no(0)}})});
 const LASTSEEN=new Map();const hit={};const limited=(k,n,ms)=>{const t=Date.now(),a=(hit[k]=(hit[k]||[]).filter(x=>t-x<ms));a.push(t);return a.length>n};
 const DEVN=new Set((process.env.DEV_USERS||'').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean));
-const user=req=>{const t=(req.headers.authorization||'').replace('Bearer ','');const s=t&&Q1('SELECT uid FROM sessions WHERE th=?',sha(t));const u=s&&Q1('SELECT * FROM users WHERE id=? AND banned=0',s.uid);if(u&&!u.dev&&(DEVN.has(String(u.name).toLowerCase())||(u.email&&DEVN.has(String(u.email).toLowerCase())))){X('UPDATE users SET dev=1 WHERE id=?',u.id);u.dev=1}if(u&&!u.pid)ensurePid(u);if(u)LASTSEEN.set(u.id,Date.now());return u};
+const user=req=>{const t=(req.headers.authorization||'').replace('Bearer ','');const s=t&&Q1('SELECT uid FROM sessions WHERE th=?',sha(t));const u=s&&Q1('SELECT * FROM users WHERE id=? AND banned=0',s.uid);if(u&&!u.dev&&(DEVN.has(String(u.name).toLowerCase())||(u.email&&DEVN.has(String(u.email).toLowerCase())))){X('UPDATE users SET dev=1 WHERE id=?',u.id);u.dev=1}if(u&&!u.pid)ensurePid(u);if(u&&!u.dev&&banHit(req))return null;if(u)LASTSEEN.set(u.id,Date.now());return u};
 const isAdmin=req=>{const a=Buffer.from(req.headers['x-admin']||''),b=Buffer.from(ADMIN);return a.length===b.length&&crypto.timingSafeEqual(a,b)};
-function login(uid){const t=crypto.randomBytes(32).toString('hex');X('INSERT INTO sessions VALUES(?,?,?)',sha(t),uid,Date.now());return t}
+function login(uid){const t=crypto.randomBytes(32).toString('hex');try{const d=Q1('SELECT dev FROM users WHERE id=?',uid);if(!(d&&d.dev)){X('DELETE FROM sessions WHERE uid=?',uid);dropPeers(uid)}}catch(e){}X('INSERT INTO sessions VALUES(?,?,?)',sha(t),uid,Date.now());return t}
+// ===== SEGURANÇA (etapa 4) =====
+db.exec('CREATE TABLE IF NOT EXISTS bans(kind TEXT,val TEXT,ts INT,by TEXT,note TEXT,PRIMARY KEY(kind,val))');
+db.exec('CREATE TABLE IF NOT EXISTS udev(uid INT,ip TEXT,dv TEXT,host TEXT,ts INT,PRIMARY KEY(uid,ip,dv))');
+db.exec('CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY AUTOINCREMENT,ts INT,rid INT,rname TEXT,tid INT,tname TEXT,reason TEXT,ctx TEXT,done INT DEFAULT 0)');
+db.exec('CREATE TABLE IF NOT EXISTS mutes(uid INT PRIMARY KEY,until INT,why TEXT)');
+const BAN={ip:new Set(),dv:new Set(),dns:new Set()},HOSTC=new Map();
+const banLoad=()=>{BAN.ip.clear();BAN.dv.clear();BAN.dns.clear();for(const b of Q('SELECT kind,val FROM bans')){if(b.kind==='ip')BAN.ip.add(b.val);else if(b.kind==='dv')BAN.dv.add(b.val);else if(b.kind==='dns')BAN.dns.add(b.val)}};banLoad();
+const dvOf=q=>String(q.headers['x-dev']||'').replace(/[^0-9a-f]/gi,'').slice(0,40);
+const banHit=q=>{try{const ip=ipOf(q);if(BAN.ip.has(ip))return true;const d=dvOf(q);if(d&&BAN.dv.has(d))return true;if(BAN.dns.size){const h=HOSTC.get(ip);if(h&&BAN.dns.has(h))return true}}catch(e){}return false};
+const trk=(uid,q)=>{try{if(!uid)return;const ip=ipOf(q),d=dvOf(q);X('INSERT OR REPLACE INTO udev(uid,ip,dv,host,ts) VALUES(?,?,?,?,?)',uid,ip,d,HOSTC.get(ip)||'',Date.now());if(!HOSTC.has(ip)){HOSTC.set(ip,'');require('node:dns').reverse(ip,(e,h)=>{const n=((h&&h[0])||'').toLowerCase();HOSTC.set(ip,n);if(n)try{X('UPDATE udev SET host=? WHERE ip=? AND host=\'\'',n,ip)}catch(x){}})}}catch(e){}};
+const BLK=[/https?:\/\//i,/\bwww\./i,/[a-z0-9-]{2,}\.(com|net|org|br|io|gg|me|tv|xyz|info|club|app|link|ly|co|ru|cc)\b/i,/[\w.+-]+@[\w-]+\.\w+/,/\b(discord|whatsapp|wpp|telegram|t\.me|instagram|facebook|paypal)\b/i,/\(?\b\d{2}\)?[\s.-]?9?\d{4}[\s.-]\d{4}\b/,/\+\d{2,3}[\s\d.-]{8,}/];
+const blockedTxt=t=>BLK.some(rx=>rx.test(t));
+const cleanTxt=(t,n)=>String(t==null?'':t).replace(/[<>&"'`\u0000-\u001f\u007f]/g,'').trim().slice(0,n);
+const cleanObj=(o,d)=>{if(d>5)return null;if(typeof o==='string')return o.replace(/[<>&"'`]/g,'');if(Array.isArray(o))return o.slice(0,200).map(x=>cleanObj(x,d+1));if(o&&typeof o==='object'){const r={};for(const k of Object.keys(o).slice(0,100))r[k.replace(/[<>&"'`]/g,'')]=cleanObj(o[k],d+1);return r}return o};
+const muteOf=uid=>{const m=Q1('SELECT until FROM mutes WHERE uid=?',uid);return m&&m.until>Date.now()?m.until:0};
+const findAcc=a=>{a=String(a||'').trim().slice(0,200);if(!a)return null;const m=/^(?:id\s*[-:#]?\s*|#)?(\d{1,10})$/i.exec(a);let t=m?(m[1].length===10?Q1('SELECT id,name,pid FROM users WHERE pid=?',+m[1]):Q1('SELECT id,name,pid FROM users WHERE id=?',+m[1])):null;if(!t)t=Q1('SELECT id,name,pid FROM users WHERE lower(email)=?',a.toLowerCase());if(!t)t=Q1('SELECT id,name,pid FROM users WHERE name=?',a);return t};
+const dropPeers=uid=>{try{for(const rm of ROOMS.values())for(const p of [...rm.peers.values()])if(p.uid===uid)rtDrop(rm,p)}catch(e){}};
+
 function summarize(st){const ch=Array.isArray(st.chars)?st.chars:[];return{maxLv:ch.reduce((m,c)=>Math.max(m,c.lv|0),0),sumLv:ch.reduce((m,c)=>m+(c.lv|0),0),chars:ch.length,gold:st.gold|0,orc:st.orc|0,stage:st.stage|0}}
 // ---- Anti-clonagem: cada item/personagem tem um uid. O servidor registra o dono na 1ª vez que vê o uid.
 // Se o mesmo uid aparece em outra conta, ou volta depois de ter sumido (save antigo restaurado), é clone: o item é removido do save e vira alerta.
-const UID_RE=/^[0-9a-f]{16}$/,ITEM_KEYS=['eqs','runes','pots','books'];
+const UID_RE=/^[0-9a-f]{12,16}$/,ITEM_KEYS=['eqs','runes','pots','books'];
 // Mundos IDLE/LOBBY: os itens do mundo que não está ativo ficam em st.W[mundo]; contam como presentes (senão trocar de mundo marcaria tudo como "gasto" e apagaria ao voltar).
 function worldsOf(st){const o=[st];if(st&&st.W&&typeof st.W==='object')Object.values(st.W).forEach(w=>{if(w&&typeof w==='object')o.push(w)});return o}
 function collectUids(st){const o=[];worldsOf(st).forEach(w=>{ITEM_KEYS.forEach(k=>{(Array.isArray(w[k])?w[k]:[]).forEach(x=>{if(x&&UID_RE.test(x.uid))o.push([x.uid,k])})});(Array.isArray(w.chars)?w.chars:[]).forEach(c=>{if(c&&UID_RE.test(c.uid))o.push([c.uid,'chars'])})});return o}
@@ -86,11 +104,17 @@ function hsVacate(k,uid){X('DELETE FROM houses WHERE k=? AND uid=?',k,uid);const
 function hsSweep(){try{Q('SELECT k,uid FROM houses').forEach(h=>{if(hsStale(h.uid))hsVacate(h.k,h.uid)})}catch(e){}}
 setTimeout(hsSweep,5000);setInterval(hsSweep,36e5);
 db.exec('CREATE TABLE IF NOT EXISTS auc(id INTEGER PRIMARY KEY AUTOINCREMENT,seller INT,sname TEXT,kind TEXT,item TEXT,cur TEXT,mode TEXT,price REAL,t0 INT,end INT,bid REAL DEFAULT 0,bidder INT DEFAULT 0,done INT DEFAULT 0)');
-const AU_CUR=new Set(['orc','gold','dia']),aRound=(c,v)=>c==='cred'?Math.round(v*100)/100:Math.max(1,Math.round(v)),aMin=a=>a.bid?(a.cur==='cred'?Math.round(a.bid*105+1)/100:Math.ceil(a.bid*1.05)):a.price,aOp=(uid,op)=>{if(op&&(op.t==='ac'||op.t==='gw')&&op.cur==='dia')exDia(uid,op.n);return X('INSERT INTO devops(uid,op,at) VALUES(?,?,?)',uid,JSON.stringify(op),Date.now())};
+const AU_CUR=new Set(['orc','gold','dia']),aRound=(c,v)=>c==='cred'?Math.round(v*100)/100:Math.max(1,Math.round(v)),aMin=a=>a.bid?(a.cur==='cred'?Math.round(a.bid*105+1)/100:Math.ceil(a.bid*1.05)):a.price,aOp=(uid,op)=>{if(op&&(op.t==='ac'||op.t==='gw'||op.t==='sc')&&op.cur==='dia')exDia(uid,op.n);return X('INSERT INTO devops(uid,op,at) VALUES(?,?,?)',uid,JSON.stringify(op),Date.now())};
 function aSettle(){try{const now=Date.now();for(const a of Q('SELECT * FROM auc WHERE done=0 AND end<=?',now)){if(!X('UPDATE auc SET done=1 WHERE id=? AND done=0',a.id).changes)continue;let it;try{it=JSON.parse(a.item)}catch(e){continue}
  if(a.bidder){aOp(a.bidder,{t:'ai',k:a.kind,it,m:'won',g:a.bid,cur:a.cur});aOp(a.seller,{t:'ac',cur:a.cur,n:aRound(a.cur,a.bid*.97),g:a.bid,m:'sold',k:a.kind,it})}else aOp(a.seller,{t:'ai',k:a.kind,it,m:'back'})}
  X('DELETE FROM auc WHERE done=1 AND end<?',now-864e5)}catch(e){}}
 setTimeout(aSettle,6000);setInterval(aSettle,30000);
+db.exec('CREATE TABLE IF NOT EXISTS shops(uid INT PRIMARY KEY,name TEXT,sname TEXT,ch INT,x REAL,y REAL,items TEXT,hb INT)');
+db.exec('CREATE TABLE IF NOT EXISTS shopsales(id INTEGER PRIMARY KEY AUTOINCREMENT,ts INT,seller INT,sname TEXT,buyer INT,bname TEXT,cur TEXT,price REAL,k TEXT,iuid TEXT,item TEXT)');
+const SH_CH=new Set([50]),SH_TTL=60000;
+function shClose(uid){const w=Q1('SELECT * FROM shops WHERE uid=?',uid);if(!w)return[];if(!X('DELETE FROM shops WHERE uid=?',uid).changes)return[];let its=[];try{its=JSON.parse(w.items)}catch(e){}return its.filter(i=>!i.sold)}
+function shSweep(){try{for(const w of Q('SELECT uid FROM shops WHERE hb<?',Date.now()-SH_TTL)){shClose(w.uid).forEach(i=>aOp(w.uid,{t:'sr',k:i.k,it:i.it}))}}catch(e){}}
+setInterval(shSweep,15000);
 db.exec('CREATE TABLE IF NOT EXISTS msgs(id INTEGER PRIMARY KEY,uid INT,frm TEXT,txt TEXT,at INT,rd INT DEFAULT 0)');db.exec('CREATE TABLE IF NOT EXISTS cashouts(id INTEGER PRIMARY KEY,uid INT,name TEXT,pid INT,dia INT,brl REAL,pix TEXT,at INT,paid INT DEFAULT 0)');
 try{db.exec('ALTER TABLE wday ADD COLUMN ex INT DEFAULT 0')}catch(e){}try{db.exec('ALTER TABLE users ADD COLUMN lockexp INT DEFAULT 0')}catch(e){}
 const msgTo=(uid,txt,frm)=>X('INSERT INTO msgs(uid,frm,txt,at) VALUES(?,?,?,?)',uid,frm||'Sistema',String(txt).slice(0,600),Date.now());
@@ -165,7 +189,7 @@ n.forEach(m=>X('INSERT INTO alerts(uid,msg,at) VALUES(?,?,?)',uid,m,now));return
 // ================= SALAS EM TEMPO REAL (lobby, chat, casas) — SSE, sem dependências =================
 // Cliente abre GET /api/rt?room=lobby3 (fluxo SSE, com Authorization) e envia POST /api/rt/send.
 const LOBBY_MAX=+process.env.LOBBY_MAX||20,LOBBY_VIP=+process.env.LOBBY_VIP_MAX||40;const ROOMS=new Map(),RTM={max:+process.env.ROOM_MAX||120,perUser:3,flushMs:400};let peerSeq=0;
-const ROOM_RE=/^(lobby\d{1,4}|home[\w:]{1,16})$/,EV_OK=new Set(['chat','knock','knockr','hbuy','hbuyr','hit','kill']);
+const ROOM_RE=/^(lobby\d{1,4}|home[\w:]{1,16})$/,EV_OK=new Set(['chat','knock','knockr','hbuy','hbuyr','hit','kill','fx']);
 const sseW=(res,ev,d)=>{try{res.write('event: '+ev+'\ndata: '+JSON.stringify(d)+'\n\n')}catch(e){}};
 function rtFlush(rm){rm.timer=null;if(!rm.peers.size){ROOMS.delete(rm.n);return}
  const u=[...rm.dirty].map(id=>rm.peers.get(id)).filter(Boolean).map(p=>({peer:p.id,presence:p.presence,kind:'viewer'})),d=[...rm.gone];rm.dirty.clear();rm.gone.length=0;
@@ -222,10 +246,12 @@ const rtRoutes={
   rtMark(rm,id,0);q.on('close',()=>rtDrop(rm,p))},
  async 'POST /api/rt/send'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),rm=ROOMS.get(String(b.room||'')),p=rm&&rm.peers.get(String(b.peer||''));
   if(!p||p.uid!==u.id)return send(r,404,{error:'sala/peer desconhecido'});
-  if(b.t==='presence'){if(rtBucket(p,'pr',1000)>6)return send(r,429,{});const j=JSON.stringify(b.presence==null?null:b.presence);if(j.length>6000)return send(r,413,{});p.presence=b.presence==null?null:JSON.parse(j);rtMark(rm,p.id,0);return send(r,200,{ok:1})}
+  if(b.t==='presence'){if(rtBucket(p,'pr',1000)>6)return send(r,429,{});const j=JSON.stringify(b.presence==null?null:cleanObj(b.presence,0));if(j.length>6000)return send(r,413,{});p.presence=b.presence==null?null:JSON.parse(j);rtMark(rm,p.id,0);return send(r,200,{ok:1})}
   if(b.t==='leave'){rtDrop(rm,p);return send(r,200,{ok:1})}
-  if(b.t==='emit'){const type=String(b.type||'');if(!EV_OK.has(type))return send(r,400,{});if((type==='hit'||type==='kill')&&b.room!=='lobby11'&&b.room!=='lobby70')return send(r,400,{});if(rtBucket(p,'em',1000)>(type==='chat'?2:type==='hit'?20:type==='kill'?4:8))return send(r,429,{});
-   const j=JSON.stringify(b.data==null?{}:b.data);if(j.length>2000)return send(r,413,{});const data=JSON.parse(j);if(type==='chat'&&data&&typeof data==='object')data.n=String(data.n||u.name).slice(0,24);
+  if(b.t==='emit'){const type=String(b.type||'');if(!EV_OK.has(type))return send(r,400,{});if((type==='hit'||type==='kill')&&b.room!=='lobby11'&&b.room!=='lobby70')return send(r,400,{});if(rtBucket(p,'em',1000)>(type==='chat'?2:type==='hit'?20:type==='kill'?4:type==='fx'?6:8))return send(r,429,{});
+   const j=JSON.stringify(b.data==null?{}:b.data);if(j.length>2000)return send(r,413,{});let data=JSON.parse(j);if(type==='chat'&&data&&typeof data==='object'){const now=Date.now(),mu=muteOf(u.id);if(mu&&!u.dev)return send(r,403,{error:'mute',until:mu});const t=cleanTxt(data.t,160);if(!t)return send(r,200,{ok:1});
+    if(!u.dev){if(blockedTxt(t))return send(r,422,{error:'link'});if(rtBucket(p,'chm',15000)>6){X('INSERT OR REPLACE INTO mutes(uid,until,why) VALUES(?,?,?)',u.id,now+60000,'flood');return send(r,429,{error:'mute',until:now+60000})}}
+    data={n:cleanTxt(u.name,24),t,c:/^#[0-9a-f]{3,8}$/i.test(String(data.c||''))?String(data.c):'',r:data.r?1:0}}else if(data&&typeof data==='object')data=cleanObj(data,0);
    for(const x of rm.peers.values())sseW(x.res,'ev',{type,data,peer:p.id});return send(r,200,{ok:1})}
   send(r,400,{})},
  'GET /api/boards'(q,r){const u=user(q);if(!u)return send(r,401,{});
@@ -303,6 +329,31 @@ const rtRoutes={
  async 'POST /api/auc/buy'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),a=Q1('SELECT * FROM auc WHERE id=? AND done=0',Math.trunc(+b.id||0));if(!a||Date.now()>=a.end)return send(r,404,{error:'Leilão encerrado.'});
   if(a.mode!=='fix'||a.seller===u.id)return send(r,400,{error:'Não é possível comprar.'});if(!X('UPDATE auc SET done=1 WHERE id=? AND done=0',a.id).changes)return send(r,409,{error:'Já vendido.'});const it=JSON.parse(a.item);
   aOp(a.seller,{t:'ac',cur:a.cur,n:aRound(a.cur,a.price*.97),g:a.price,m:'sold',k:a.kind,it});send(r,200,{ok:1,k:a.kind,it,price:a.price,cur:a.cur})},
+
+ async 'POST /api/shop/open'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),ch=Math.trunc(+b.ch),x=+b.x,y=+b.y;if(!SH_CH.has(ch))return send(r,403,{error:'Lojas só podem ser abertas nas cidades.'});if(!(x>=0&&x<=400&&y>=0&&y<=400))return send(r,400,{error:'Posição inválida.'});
+  if(Q1('SELECT 1 a FROM shops WHERE uid=?',u.id))return send(r,409,{error:'Você já tem uma loja aberta.'});const name=String(b.name||'').replace(/[<>&"'`]/g,'').trim().slice(0,24)||('Loja de '+String(u.name).slice(0,12));
+  const its=Array.isArray(b.items)?b.items.slice(0,10):[];if(!its.length)return send(r,400,{error:'Coloque ao menos 1 item.'});const out=[];
+  for(const o of its){const k=o&&o.k,price=+(o&&o.price),cur=String(o&&o.cur||'');if(!(k==='e'||k==='r'||k==='b')||!AU_CUR.has(cur)||!(price>0)||price>1e13||!o.it||typeof o.it!=='object')return send(r,400,{error:'Item inválido.'});const js=JSON.stringify(o.it);if(js.length>30000)return send(r,400,{error:'Item inválido.'});out.push({k,it:o.it,cur,price:aRound(cur,price),sold:0})}
+  X('INSERT INTO shops(uid,name,sname,ch,x,y,items,hb) VALUES(?,?,?,?,?,?,?,?)',u.id,name,String(u.name).replace(/[<>&]/g,'').slice(0,24),ch,x,y,JSON.stringify(out),Date.now());send(r,200,{ok:1})},
+ 'POST /api/shop/hb'(q,r){const u=user(q);if(!u)return send(r,401,{});const w=Q1('SELECT items FROM shops WHERE uid=?',u.id);if(!w)return send(r,200,{open:0});X('UPDATE shops SET hb=? WHERE uid=?',Date.now(),u.id);let its=[];try{its=JSON.parse(w.items)}catch(e){}send(r,200,{open:1,left:its.filter(i=>!i.sold).length})},
+ async 'POST /api/shop/close'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),its=shClose(u.id);if(b.ret){its.forEach(i=>aOp(u.id,{t:'sr',k:i.k,it:i.it}));return send(r,200,{ok:1,items:[]})}send(r,200,{ok:1,items:its})},
+ 'GET /api/shop/list'(q,r,url){const u=user(q);if(!u)return send(r,401,{});shSweep();const ch=Math.trunc(+url.searchParams.get('ch')||0);const rows=Q('SELECT * FROM shops WHERE ch=? AND hb>=?',ch,Date.now()-SH_TTL),list=[];rows.forEach(w=>{try{const its=JSON.parse(w.items).map((i,n)=>({n,k:i.k,it:i.it,cur:i.cur,price:i.price,sold:i.sold?1:0}));list.push({id:w.uid,name:w.name,sn:w.sname,x:w.x,y:w.y,mine:w.uid===u.id?1:0,items:its})}catch(e){}});send(r,200,{list})},
+ async 'POST /api/shop/buy'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),id=Math.trunc(+b.shop),n=Math.trunc(+b.n);const w=Q1('SELECT * FROM shops WHERE uid=? AND hb>=?',id,Date.now()-SH_TTL);if(!w)return send(r,404,{error:'Loja fechada.'});if(w.uid===u.id)return send(r,400,{error:'Essa loja é sua.'});
+  let its;try{its=JSON.parse(w.items)}catch(e){return send(r,500,{})}const i=its[n];if(!i||i.sold)return send(r,409,{error:'Item já vendido.'});
+  i.sold=1;if(!X('UPDATE shops SET items=? WHERE uid=? AND items=?',JSON.stringify(its),w.uid,w.items).changes)return send(r,409,{error:'Tente de novo.'});
+  X('INSERT INTO shopsales(ts,seller,sname,buyer,bname,cur,price,k,iuid,item) VALUES(?,?,?,?,?,?,?,?,?,?)',Date.now(),w.uid,w.sname,u.id,String(u.name).slice(0,24),i.cur,i.price,i.k,String(i.it&&i.it.uid||''),JSON.stringify(i.it));
+  aOp(w.uid,{t:'sc',cur:i.cur,n:i.price,k:i.k,it:i.it,b:String(u.name).slice(0,24)});send(r,200,{ok:1,k:i.k,it:i.it,cur:i.cur,price:i.price})},
+
+ async 'POST /api/report'(q,r){const u=user(q);if(!u)return send(r,401,{});if(limited('rp'+u.id,5,600e3))return send(r,429,{error:'Muitas denúncias, aguarde.'});const b=await body(q),t=findAcc(b.name);if(!t||t.id===u.id)return send(r,404,{error:'Jogador não encontrado.'});const why=['spam','ofensa','cheat','golpe','outro'].includes(b.reason)?b.reason:'outro';
+  X('INSERT INTO reports(ts,rid,rname,tid,tname,reason,ctx) VALUES(?,?,?,?,?,?,?)',Date.now(),u.id,u.name,t.id,t.name,why,cleanTxt(b.ctx,160));send(r,200,{ok:1})},
+ 'GET /api/reports'(q,r){const u=user(q);if(!u||!u.dev)return send(r,403,{});send(r,200,{list:Q('SELECT * FROM reports WHERE done=0 ORDER BY id DESC LIMIT 100')})},
+ async 'POST /api/report/done'(q,r){const u=user(q);if(!u||!u.dev)return send(r,403,{});const b=await body(q);X('UPDATE reports SET done=1 WHERE id=?',Math.trunc(+b.id||0));send(r,200,{ok:1})},
+ async 'POST /api/ban'(q,r){const u=user(q);if(!u||!u.dev)return send(r,403,{error:'Só conta DEV.'});const b=await body(q),t=findAcc(b.alvo);if(!t)return send(r,404,{error:'Conta não encontrada.'});const tu=Q1('SELECT dev FROM users WHERE id=?',t.id);if(tu&&tu.dev)return send(r,400,{error:'Não dá para banir conta DEV.'});
+  const note=cleanTxt(b.note,120),now=Date.now();let n={ip:0,dv:0,dns:0};X('UPDATE users SET banned=1 WHERE id=?',t.id);X('DELETE FROM sessions WHERE uid=?',t.id);
+  for(const d of Q('SELECT ip,dv,host FROM udev WHERE uid=?',t.id)){const ins=(k,v)=>v&&X('INSERT OR IGNORE INTO bans(kind,val,ts,by,note) VALUES(?,?,?,?,?)',k,v,now,u.name,'uid '+t.id+' '+note).changes?1:0;if(d.ip&&!/^(127\.|::1|::ffff:127\.)/.test(d.ip))n.ip+=ins('ip',d.ip);n.dv+=ins('dv',d.dv);n.dns+=ins('dns',d.host)}
+  banLoad();dropPeers(t.id);send(r,200,{ok:1,name:t.name,id:t.pid||t.id,banido:n})},
+ async 'POST /api/unban'(q,r){const u=user(q);if(!u||!u.dev)return send(r,403,{error:'Só conta DEV.'});const b=await body(q),t=findAcc(b.alvo);if(!t)return send(r,404,{error:'Conta não encontrada.'});X('UPDATE users SET banned=0 WHERE id=?',t.id);X("DELETE FROM bans WHERE note LIKE ?",'uid '+t.id+' %');banLoad();send(r,200,{ok:1,name:t.name})},
+ async 'POST /api/unmute'(q,r){const u=user(q);if(!u||!u.dev)return send(r,403,{});const b=await body(q),t=findAcc(b.alvo);if(t)X('DELETE FROM mutes WHERE uid=?',t.id);send(r,200,{ok:!!t})},
  'GET /api/version'(q,r){let v='0';try{const st=fs.statSync(path.join(PUB,'index.html'));v=st.size.toString(36)+'-'+Math.floor(st.mtimeMs/1000).toString(36)}catch(e){}r.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});r.end(JSON.stringify({v}))},
  async 'POST /api/house/claim'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),k=String(b.k||'');if(!HK_RE.test(k)||/^14:/.test(k))return send(r,400,{error:'Casa inválida.'});
   const row=Q1('SELECT h.uid,u.name FROM houses h JOIN users u ON u.id=h.uid WHERE h.k=?',k);
@@ -357,7 +408,7 @@ function dbDisk(){try{const f=path.resolve(process.env.DB||'jogo.db');let best=n
 const DBD=dbDisk();
 const routes={
 ...rtRoutes,
-async 'POST /api/register'(q,r){const b=await body(q);const n=String(b.user||'').trim(),p=String(b.pass||'');
+async 'POST /api/register'(q,r){const b=await body(q);if(banHit(q))return send(r,403,{error:'Acesso bloqueado.'});const n=String(b.user||'').trim(),p=String(b.pass||'');
  if(!/^[\w.-]{3,20}$/.test(n)||p.length<8||p.length>100)return send(r,400,{error:'Usuário 3-20 letras/números e senha com 8+ caracteres.'});
  const em=String(b.email||'').trim().toLowerCase();if(process.env.REQUIRE_EMAIL!=='0'&&!EMAIL_RE.test(em))return send(r,400,{error:'Informe um e-mail válido.'});if(em&&!EMAIL_RE.test(em))return send(r,400,{error:'E-mail inválido.'});
  if(limited('reg'+ipOf(q),5,3600e3))return send(r,429,{error:'Muitas contas criadas, tente mais tarde.'});
@@ -365,13 +416,14 @@ async 'POST /api/register'(q,r){const b=await body(q);const n=String(b.user||'')
  if(Q1('SELECT 1 FROM users WHERE name=?',n))return send(r,409,{error:'Usuário já existe.'});
  const salt=crypto.randomBytes(16).toString('hex'),hash=crypto.scryptSync(p,salt,64).toString('hex');
  const id=X('INSERT INTO users(name,salt,hash,created,email) VALUES(?,?,?,?,?)',n,salt,hash,Date.now(),em||null).lastInsertRowid;send(r,200,{token:login(id),user:n})},
-async 'POST /api/login'(q,r){const b=await body(q);if(limited('lg'+ipOf(q),10,600e3))return send(r,429,{error:'Muitas tentativas.'});
+async 'POST /api/login'(q,r){const b=await body(q);if(banHit(q))return send(r,403,{error:'Acesso bloqueado.'});if(limited('lg'+ipOf(q),10,600e3))return send(r,429,{error:'Muitas tentativas.'});
  const u=Q1('SELECT * FROM users WHERE name=? AND banned=0',String(b.user||''));
  let okp=u&&pwOk(u,b.pass);if(u&&!okp&&tmpOk(u,b.pass)){okp=true;X('UPDATE users SET salt=?,hash=?,thash=NULL,tsalt=NULL,texp=0 WHERE id=?',u.tsalt,u.thash,u.id)}
- if(!u||!okp)return send(r,401,{error:'Usuário ou senha inválidos.'});send(r,200,{token:login(u.id),user:u.name})},
-async 'GET /api/save'(q,r){const u=user(q);if(!u)return send(r,401,{});const s=Q1('SELECT state FROM saves WHERE uid=?',u.id);const st=s?JSON.parse(s.state):null;if(st&&applyCredits(u.id,st)){X('UPDATE saves SET state=?,orc=?,dia=? WHERE uid=?',JSON.stringify(st),st.orc|0,st.dia|0,u.id)}send(r,200,{state:st,epoch:epochOf(u),dev:u.dev?1:0,locked:u.locked&&!u.dev?1:0})},
+ if(!u||!okp)return send(r,401,{error:'Usuário ou senha inválidos.'});trk(u.id,q);send(r,200,{token:login(u.id),user:u.name})},
+async 'GET /api/save'(q,r){const u=user(q);if(!u)return send(r,401,{});trk(u.id,q);const s=Q1('SELECT state FROM saves WHERE uid=?',u.id);const st=s?JSON.parse(s.state):null;if(st&&applyCredits(u.id,st)){X('UPDATE saves SET state=?,orc=?,dia=? WHERE uid=?',JSON.stringify(st),st.orc|0,st.dia|0,u.id)}send(r,200,{state:st,epoch:epochOf(u),dev:u.dev?1:0,locked:u.locked&&!u.dev?1:0})},
 async 'PUT /api/save'(q,r){const u=user(q);if(!u)return send(r,401,{});if(u.locked&&!u.dev)return send(r,423,{locked:1});if((+u.lockexp||0)>Date.now()&&!u.dev)return send(r,423,{locked:1,until:u.lockexp});const ep0=epochOf(u);if(!(getEpoch()==='0'&&!u.ep)&&String(q.headers['x-epoch']||'')!==ep0)return send(r,409,{reset:1,epoch:ep0});const b=await body(q);const st=b.state;
  if(!st||typeof st!=='object')return send(r,400,{});const prev=Q1('SELECT * FROM saves WHERE uid=?',u.id),now=Date.now();
+ if(!u.dev){try{const cap=lvCap().cap,fx=a=>{if(Array.isArray(a))for(const c of a)if(c&&typeof c==='object'&&(c.lv|0)>cap){c.lv=cap;c.xp=0}};fx(st.wd==='L'?st.chars:(st.W&&st.W.L&&st.W.L.chars))}catch(e){}}
  if(prev&&now-prev.updated<LIM.minGapMs)return send(r,429,{error:'Devagar.'});
  prkSettle();const strip=idGuard(u.id,st,prev,now);const s=summarize(idleView(st));const lk=((+u.gexp||0)>now)?(check(u.id,{...s,maxLv:0,sumLv:0,chars:0,orc:0},prev&&{...prev,maxLv:0,sumLv:0,chars:0,orc:0},now),false):check(u.id,s,prev,now);if(!u.dev&&(lk||st.lock)){X('UPDATE users SET locked=1 WHERE id=?',u.id);return send(r,423,{locked:1})}
  if(!u.dev){st.profLock=true;try{const pv0=prev&&JSON.parse(prev.state);for(const w of['I','L']){const a=wld(st,w),b=pv0&&wld(pv0,w);if(a){if(b&&b.prof&&a.prof!==b.prof)a.prof=b.prof;a.profLock=true}}}catch(e){}}
@@ -441,7 +493,7 @@ async 'POST /api/gvg/accept'(q,r){const u=user(q);if(!u)return send(r,401,{});co
 async 'POST /api/gvg/cancel'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q);const w=Q1("SELECT * FROM gvw WHERE id=? AND (a=? OR b=?) AND st='open'",+b.id,u.id,u.id);if(!w)return send(r,404,{});if(!X("UPDATE gvw SET st='done' WHERE id=? AND st='open'",w.id).changes)return send(r,404,{});aOp(w.a,{t:'gw',cur:w.cur,n:w.q,win:-1,m:'Guerra recusada/cancelada — cota devolvida.'});send(r,200,{ok:1})},
 async 'POST /api/global'(q,r){const u=user(q);if(!u||!u.dev)return send(r,403,{error:'Só DEV.'});const b=await body(q);const txt=String(b.txt||'').replace(/[<>&|]/g,'').trim().slice(0,160),col=/^#[0-9a-f]{6}$/i.test(b.col)?b.col:'#ffd24a',ff=['Impact','Arial Black','Georgia','Courier New','Comic Sans MS','Trebuchet MS','Verdana'].includes(b.ff)?b.ff:'Impact';if(!txt)return send(r,400,{error:'Mensagem vazia.'});X('INSERT INTO announces(uid,name,txt,k,at) VALUES(?,?,?,?,?)',u.id,'📢',txt,'gl|'+col+'|'+ff,Date.now());send(r,200,{ok:1})},
 async 'POST /api/admin/global'(q,r){if(!isAdmin(q))return send(r,403,{});const b=await body(q);const txt=String(b.txt||'').replace(/[<>&|]/g,'').trim().slice(0,160),col=/^#[0-9a-f]{6}$/i.test(b.col)?b.col:'#ffd24a',ff=['Impact','Arial Black','Georgia','Courier New','Comic Sans MS','Trebuchet MS','Verdana'].includes(b.ff)?b.ff:'Impact';if(!txt)return send(r,400,{error:'Mensagem vazia.'});X('INSERT INTO announces(uid,name,txt,k,at) VALUES(?,?,?,?,?)',0,'📢',txt,'gl|'+col+'|'+ff,Date.now());send(r,200,{ok:1})},
-async 'POST /api/announce'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q);const now=Date.now(),last=Q1('SELECT at FROM announces WHERE uid=? ORDER BY id DESC LIMIT 1',u.id);if(last&&now-last.at<3000)return send(r,429,{});const txt=String(b.txt||'').replace(/[<>&]/g,'').slice(0,160),k=['dv','rf','mt','ch'].includes(b.k)?b.k:'dv';if(!txt)return send(r,400,{});let xs=null;if(k==='ch'){if(Q1("SELECT id FROM announces WHERE uid=? AND k='ch' AND at>?",u.id,now-6*864e5))return send(r,429,{});const x=b.x&&typeof b.x==='object'?b.x:{},av=typeof x.av==='string'&&/^data:image\//.test(x.av)&&x.av.length<30000?x.av:'',st=Array.isArray(x.st)?x.st.slice(0,4).map(v=>String(v||'').replace(/[^#A-Za-z0-9 _-]/g,'').slice(0,24)):null;xs=JSON.stringify({av,st})}else{const x=b.x&&typeof b.x==='object'?b.x:{};if(Array.isArray(x.st))xs=JSON.stringify({st:x.st.slice(0,4).map(v=>String(v||'').replace(/[^#A-Za-z0-9 _-]/g,'').slice(0,24))})}X('INSERT INTO announces(uid,name,txt,k,at,x) VALUES(?,?,?,?,?,?)',u.id,u.name,txt,k,now,xs);send(r,200,{ok:1})},
+async 'POST /api/announce'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q);const now=Date.now(),last=Q1('SELECT at FROM announces WHERE uid=? ORDER BY id DESC LIMIT 1',u.id);if(last&&now-last.at<3000)return send(r,429,{});const txt=b.k==='lv'?String(Math.max(1,Math.min(5000,parseInt(b.txt,10)||0))):String(b.txt||'').replace(/[<>&]/g,'').slice(0,160),k=['dv','rf','mt','ch','lv'].includes(b.k)?b.k:'dv';if(!txt)return send(r,400,{});let xs=null;if(k==='ch'){if(Q1("SELECT id FROM announces WHERE uid=? AND k='ch' AND at>?",u.id,now-6*864e5))return send(r,429,{});const x=b.x&&typeof b.x==='object'?b.x:{},av=typeof x.av==='string'&&/^data:image\//.test(x.av)&&x.av.length<30000?x.av:'',st=Array.isArray(x.st)?x.st.slice(0,4).map(v=>String(v||'').replace(/[^#A-Za-z0-9 _-]/g,'').slice(0,24)):null;xs=JSON.stringify({av,st})}else{const x=b.x&&typeof b.x==='object'?b.x:{};if(Array.isArray(x.st))xs=JSON.stringify({st:x.st.slice(0,4).map(v=>String(v||'').replace(/[^#A-Za-z0-9 _-]/g,'').slice(0,24))})}X('INSERT INTO announces(uid,name,txt,k,at,x) VALUES(?,?,?,?,?,?)',u.id,u.name,txt,k,now,xs);send(r,200,{ok:1})},
 async 'GET /api/announces'(q,r){const u=user(q);if(!u)return send(r,401,{});const url=new URL(q.url,'http://x'),since=+url.searchParams.get('since')||0;const rows=Q('SELECT id,uid,name,txt,k,x FROM announces WHERE id>? AND at>? ORDER BY id LIMIT 20',since,Date.now()-120000);send(r,200,{rows:rows.filter(x=>x.uid!==u.id).map(x=>{let xx=null;try{xx=x.x?JSON.parse(x.x):null}catch(e){}return{id:x.id,uid:x.uid,name:x.name,txt:x.txt,k:x.k,x:xx}}),last:Q1('SELECT MAX(id) m FROM announces').m||0})},
 async 'GET /api/ranking'(q,r){send(r,200,Q('SELECT u.name,s.maxLv,s.stage,s.chars FROM saves s JOIN users u ON u.id=s.uid WHERE u.banned=0 AND u.dev=0 ORDER BY s.maxLv DESC LIMIT 100'))},
 // ---- admin (header x-admin). Nunca devolve senha: só existe hash+salt no banco.
