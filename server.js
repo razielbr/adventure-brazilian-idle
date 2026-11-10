@@ -364,7 +364,7 @@ const rtRoutes={
  async 'POST /api/house/claim'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),k=String(b.k||'');if(!HK_RE.test(k)||/^14:/.test(k))return send(r,400,{error:'Casa inválida.'});
   const row=Q1('SELECT h.uid,u.name FROM houses h JOIN users u ON u.id=h.uid WHERE h.k=?',k);
   if(row&&row.uid!==u.id){if(hsStale(row.uid))hsVacate(k,row.uid);else return send(r,409,{error:'Esta casa já tem dono ('+String(row.name).replace(/[<>&]/g,'')+').'})}
-  if(Q1('SELECT 1 FROM houses WHERE uid=? AND k<>?',u.id,k))return send(r,409,{error:'Você já tem uma casa comprada: só é permitido ter 1.'});
+  if(Array.isArray(b.have)){const hv=b.have.map(String);Q('SELECT k FROM houses WHERE uid=? AND k<>?',u.id,k).filter(x=>!hv.includes(x.k)).forEach(x=>X('DELETE FROM houses WHERE k=? AND uid=?',x.k,u.id))}if(Q1('SELECT 1 FROM houses WHERE uid=? AND k<>?',u.id,k))return send(r,409,{error:'Você já tem uma casa comprada: só é permitido ter 1.'});
   X('INSERT OR REPLACE INTO houses(k,uid,at) VALUES(?,?,?)',k,u.id,Date.now());send(r,200,{ok:1})},
  async 'POST /api/house/release'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),k=String(b.k||'');if(HK_RE.test(k))X('DELETE FROM houses WHERE k=? AND uid=?',k,u.id);send(r,200,{ok:1})},
  async 'POST /api/house/sync'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),ks=(Array.isArray(b.ks)?b.ks:[]).map(String).filter(k=>HK_RE.test(k)&&!/^14:/.test(k)).slice(0,6),lost=[];
