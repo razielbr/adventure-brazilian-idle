@@ -121,7 +121,7 @@ const msgTo=(uid,txt,frm)=>X('INSERT INTO msgs(uid,frm,txt,at) VALUES(?,?,?,?)',
 // ===== Guildas reais: membros, patentes, entrada aberta/travada por nível (IDLE) e recrutamento por patente (MMORPG) =====
 db.exec(`CREATE TABLE IF NOT EXISTS gdg(w TEXT,g TEXT COLLATE NOCASE,leader INT,open INT DEFAULT 0,minlv INT DEFAULT 0,ic TEXT,at INT,PRIMARY KEY(w,g));
 CREATE TABLE IF NOT EXISTS gdm(w TEXT,g TEXT COLLATE NOCASE,uid INT,rk INT DEFAULT 3,lv INT DEFAULT 1,pw INT DEFAULT 0,k INT DEFAULT 0,at INT,PRIMARY KEY(w,uid))`);
-const GNAME=/^[\p{L}\p{N}]{1,15}$/u;const GINV=new Map(),GDCAP=64,gdW=w=>w==='L'?'L':'I',gdN=(v,a,b)=>Math.max(a,Math.min(b,Math.round(+v)||0));
+const GNAME=/^[\p{L}\p{N}]{1,15}$/u;const GINV=new Map(),GDCAP=30,gdW=w=>w==='L'?'L':'I',gdN=(v,a,b)=>Math.max(a,Math.min(b,Math.round(+v)||0));
 const gdMe=(uid,w)=>Q1('SELECT m.g g,m.rk rk,m.lv lv,g.open open,g.minlv minlv,g.leader leader,g.ic ic,m.at mat FROM gdm m JOIN gdg g ON g.w=m.w AND g.g=m.g WHERE m.w=? AND m.uid=?',w,uid);
 const gdInvs=(uid,w)=>{const now=Date.now(),L=(GINV.get(uid)||[]).filter(x=>now-x.at<6e5);GINV.set(uid,L);return L.filter(x=>x.w===w).map(x=>({id:x.id,g:x.g,from:x.from,w:x.w}))};
 function gdState(u,w){const m=gdMe(u.id,w),inv=gdInvs(u.id,w);if(!m)return{g:'',inv};
