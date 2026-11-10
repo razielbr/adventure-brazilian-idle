@@ -199,7 +199,7 @@ function rtDrop(rm,p){if(!rm.peers.delete(p.id))return;clearInterval(p.hb);try{p
 const rtBucket=(p,n,ms)=>{const t=Date.now();p.rl=(p.rl||{});const a=(p.rl[n]=(p.rl[n]||[]).filter(x=>t-x<ms));a.push(t);return a.length};
 
 // ===== Boss Mundiais compartilhados (Rainha Formiga CH3 / Sleifer CH10): vida global, dano por jogador, drop p/ maior dano =====
-const WBK={ant:{n:'🐜 Rainha Formiga Mundial',rs:864e5},sl:{n:'🐉 Sleifer, the Malignant Dragon',rs:7*864e5}},wbLast=new Map();
+const WBK={ant:{n:'🐜 Rainha Formiga Mundial',rs:864e5},sl:{n:'🐉 Sleifer, the Malignant Dragon',rs:12*36e5}},wbLast=new Map();
 const wbSt=k=>{let w=Q1('SELECT k,f,d,lk FROM wboss WHERE k=?',k);if(!w){X('INSERT INTO wboss(k,f,d) VALUES(?,0,0)',k);w={k,f:0,d:0,lk:null}}if(w.d&&Date.now()>=w.d){X('UPDATE wboss SET d=0,f=0 WHERE k=?',k);w.d=0;w.f=0}return w};
 const wbPub=(k,uid)=>{const w=wbSt(k),top=Q('SELECT name,gd,dm FROM wbdmg WHERE k=? ORDER BY dm DESC LIMIT 3',k),me=uid?Q1('SELECT dm FROM wbdmg WHERE k=? AND uid=?',k,uid):null;return{f:Math.min(1,w.f||0),d:w.d||0,lk:w.lk||'',top:top.map(t=>({n:t.name,g:t.gd||'',p:Math.round(t.dm*1000)/10})),my:me?Math.round(me.dm*1000)/10:0}};
 
