@@ -570,6 +570,7 @@ function staticFile(q,r,url){const p=path.join(PUB,decodeURIComponent(url.pathna
  if(q.headers['if-none-match']===etag){r.writeHead(304,h);r.end();return true}
  const zip=/\bgzip\b/.test(q.headers['accept-encoding']||'')&&['.html','.js','.css','.json','.svg'].includes(ext);
  if(zip){let c=SC.get(p);if(!c||c.etag!==etag){c={etag,buf:zlib.gzipSync(fs.readFileSync(p),{level:6})};SC.set(p,c)}h['content-encoding']='gzip';h.vary='accept-encoding';h['content-length']=c.buf.length;r.writeHead(200,h);r.end(c.buf);return true}
+ h['accept-ranges']='bytes';const rg=/^bytes=(\d*)-(\d*)$/.exec(q.headers.range||'');if(rg&&(rg[1]!==''||rg[2]!=='')){const a0=rg[1]===''?Math.max(0,st.size-(+rg[2])):+rg[1],b0=(rg[1]===''||rg[2]==='')?st.size-1:Math.min(+rg[2],st.size-1);if(a0>b0||a0>=st.size){h['content-range']='bytes */'+st.size;r.writeHead(416,h);r.end();return true}h['content-range']='bytes '+a0+'-'+b0+'/'+st.size;h['content-length']=b0-a0+1;r.writeHead(206,h);fs.createReadStream(p,{start:a0,end:b0}).pipe(r);return true}
  h['content-length']=st.size;r.writeHead(200,h);fs.createReadStream(p).pipe(r);return true}
 const srv=http.createServer(async(q,r)=>{const url=new URL(q.url,'http://x');
   r.setHeader('x-content-type-options','nosniff');r.setHeader('referrer-policy','same-origin');r.setHeader('x-frame-options','SAMEORIGIN');
