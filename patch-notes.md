@@ -4,6 +4,8 @@ Atualizações de 09/11 e 10/11/2026
 ## 10/11 (hoje)
 
 ### Novo
+- **Chat de voz (Grupo e Guilda):** botão 🎤 Voz na barra do chat. Grupo tem sala própria; a guilda tem 5 salas de voz com limite de **8 pessoas por sala**. Painel com quem está falando, silenciar microfone e silenciar cada jogador. Só funciona no servidor online (precisa do server.js novo e permissão de microfone).
+- **Tutorial para contas novas (MMORPG):** setas e destaque mostram o Canal (CH VIP), a CashShop, o Inventário (I), o Mapa do Mundo (M) e as Opções de Jogo. Dá pra pular, e o botão "❓ Tutorial" nas Opções do lobby abre de novo.
 - **Sleifer (Abismo Cristalino):** as 4 joias saíram. Agora há um Cristal Negro com raios no mapa. Clique nele de perto: ele pede as 10 pérolas (1 de cada, consumidas) e mostra quais faltam. Com todas no inventário, o botão "Invocar Sleifer" libera. Continua valendo o intervalo de 12h depois que ele for derrotado.
 - **10 Pérolas:** Floresta 2, Khen, Magma, Nuvens, Assombrado, Gelada, Sombria, Ruína, Abismo e Zumbi. Cristais com a cor do mapa, sem atributos, caem dos monstros do mapa com 0,01% de chance direto no inventário (aba Itens). Podem ser negociadas: vendidas no Leilão ou na loja do jogador (L), 1 por vez.
 - **Canal Global:** nova aba "🌍 Global" no chat dos mapas, que fala com todos os CH/mapas do jogo. Libera no nível 50. Limite de 12 mensagens por minuto, sem links.
@@ -11,6 +13,9 @@ Atualizações de 09/11 e 10/11/2026
 - **Contas novas** nascem em Amazonas City, perto do Gênio.
 
 ### Ajustes
+- **Contas novas:** agora ganham VIP de 2 dias (antes 24h) e não ganham mais os 10 Baús Easy. O texto da tela de login foi atualizado.
+- **Canal Global:** VIPs têm o Global liberado enquanto forem VIP, mesmo abaixo do nível 50. Se o VIP acabar e a conta estiver abaixo do 50, volta a ficar bloqueado.
+- **Contas DEV** recebem 3 de cada Pérola uma única vez (jogadores normais não recebem).
 - **Novo Mapa do Mundo (M):** arte nova de Chazzadorah, com anel dourado no mapa onde você está e a contagem de jogadores em cada mapa. A Região Inca aparece bloqueada à direita.
 - **Inventário (I) no MMORPG:** a Mochila agora fica do lado direito (personagem, equipamentos e abas ficam à esquerda). A janela ficou bem mais baixa, pensando em monitores pequenos.
 - **Inventário (I) no MMORPG:** agora fica sempre dentro da tela do jogo. Ao abrir, arrastar ou redimensionar, ele não passa mais das barras de cima e de baixo nem sai da área do mapa.
