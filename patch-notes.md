@@ -4,11 +4,18 @@ Atualizações de 09/11 e 10/11/2026
 ## 10/11 (hoje)
 
 ### Novo
+- **Sleifer (Abismo Cristalino):** as 4 joias saíram. Agora há um Cristal Negro com raios no mapa. Clique nele de perto: ele pede as 10 pérolas (1 de cada, consumidas) e mostra quais faltam. Com todas no inventário, o botão "Invocar Sleifer" libera. Continua valendo o intervalo de 12h depois que ele for derrotado.
+- **10 Pérolas:** Floresta 2, Khen, Magma, Nuvens, Assombrado, Gelada, Sombria, Ruína, Abismo e Zumbi. Cristais com a cor do mapa, sem atributos, caem dos monstros do mapa com 0,01% de chance direto no inventário (aba Itens). Podem ser negociadas: vendidas no Leilão ou na loja do jogador (L), 1 por vez.
 - **Canal Global:** nova aba "🌍 Global" no chat dos mapas, que fala com todos os CH/mapas do jogo. Libera no nível 50. Limite de 12 mensagens por minuto, sem links.
 - **Amazonas City:** ruas com textura de pedra e meio-fio; grama nova mais clara; topos das casas com textura.
 - **Contas novas** nascem em Amazonas City, perto do Gênio.
 
 ### Ajustes
+- **Novo Mapa do Mundo (M):** arte nova de Chazzadorah, com anel dourado no mapa onde você está e a contagem de jogadores em cada mapa. A Região Inca aparece bloqueada à direita.
+- **Inventário (I) no MMORPG:** a Mochila agora fica do lado direito (personagem, equipamentos e abas ficam à esquerda). A janela ficou bem mais baixa, pensando em monitores pequenos.
+- **Inventário (I) no MMORPG:** agora fica sempre dentro da tela do jogo. Ao abrir, arrastar ou redimensionar, ele não passa mais das barras de cima e de baixo nem sai da área do mapa.
+- **Boss Mundial (Sleifer e Rainha Formiga):** não dropam mais personagem. O drop agora é 1 equipamento Mítico +100 e 1 runa Mítica +100 (Rainha: +30).
+- **AGI agora aumenta a velocidade de movimento** (MMORPG): +1x no máximo, com 1500 de AGI (igual ao Siamês nível 10). O bônus de AGI e o da montaria somam e o total nunca passa de +1x.
 - **Tecla M** abre o Mapa do Mundo em tamanho grande (M ou Esc para fechar).
 - **Equipar automático** ganhou o botão "🔎 Filtro do equipar automático": escolha o atributo principal do item (STR, AGI, VIT, INT, LUK, DEX, HP) e os atributos extras (crítico, esquiva etc.), e ele equipa os itens que combinam.
 - **Minimapa:** corrigido o botão de restaurar depois de minimizar (agora "▢ ABRIR").
@@ -54,3 +61,5 @@ Atualizações de 09/11 e 10/11/2026
 - **Jogadores por mapa:** o título do mapa mostra quantos jogadores estão nele (👥), e o Mapa do Mundo (M) mostra a quantidade de jogadores em cada mapa e o total online. Atualiza sozinho a cada poucos segundos.
 - **PK Mode:** botão "PK OPEN" ao lado do LV (acima do círculo de nível). Libera no nível 200; ligado, você pode atacar qualquer jogador nível 200+ fora das cidades, mesmo que ele não tenha ligado o PK Mode. Jogadores abaixo do nível 200 nunca podem ser atacados. Ligar avisa todos os jogadores do mesmo mapa, só desliga depois de 1 minuto, dá +5% de XP e +0,02% de drop de equipamentos; morrer para jogador custa 7% de XP e volta para Amazonas City.
 - **Mundo Chazzadorah:** o Mapa do Mundo agora mostra o nome do mundo e tem uma seta ▶ para a Região Inca (bloqueada até os mapas ficarem prontos).
+- **Janelas:** a lojinha dos jogadores (tecla L) e a janela da Guilda agora podem ser movidas arrastando; a posição fica salva.
+- **Lojinhas:** agora podem ser abertas em qualquer cidade (Amazonas City e Acre), não só em Amazonas.
