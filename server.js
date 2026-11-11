@@ -306,15 +306,15 @@ const rtRoutes={
   const salt=crypto.randomBytes(16).toString('hex'),hash=crypto.scryptSync(crypto.randomBytes(24).toString('hex'),salt,64).toString('hex');
   const id=X('INSERT INTO users(name,salt,hash,created,email,gsub) VALUES(?,?,?,?,?,?)',n,salt,hash,Date.now(),em,t.sub).lastInsertRowid;send(r,200,{token:login(id),user:n,novo:1})},
  async 'POST /api/devcmd'(q,r){const u=user(q);if(!u||!u.dev)return send(r,403,{error:'Só conta DEV.'});const b=await body(q);const cmd=String(b.cmd||'').toLowerCase(),qtd=Math.trunc(+b.qtd||0),arg=Math.trunc(+b.arg||0);let a=String(b.alvo||'').trim().slice(0,200);
-  if(!['diamantes','oricalco','levelup','gold','bau','personagem'].includes(cmd)||!qtd)return send(r,400,{error:'Comando inválido.'});
-  const lim={diamantes:1e7,oricalco:1e6,levelup:5000,gold:1e13,bau:1e6,personagem:50}[cmd];if(Math.abs(qtd)>lim||(['levelup','personagem'].includes(cmd)&&qtd<1))return send(r,400,{error:'Valor fora do limite (máx '+lim+').'});
+  if(!['diamantes','oricalco','levelup','gold','bau','personagem','job'].includes(cmd)||!qtd)return send(r,400,{error:'Comando inválido.'});
+  const lim={diamantes:1e7,oricalco:1e6,levelup:5000,gold:1e13,bau:1e6,personagem:50,job:70}[cmd];if(Math.abs(qtd)>lim||(['levelup','personagem','job'].includes(cmd)&&qtd<1))return send(r,400,{error:'Valor fora do limite (máx '+lim+').'});
   if((cmd==='bau'||cmd==='personagem')&&(arg<0||arg>5))return send(r,400,{error:'Opção inválida.'});
   let t;if(!a)t={id:u.id,name:u.name,pid:u.pid};else{const m=/^(?:id\s*[-:#]?\s*|#)?(\d{1,10})$/i.exec(a);t=m?(m[1].length===10?Q1('SELECT id,name,pid FROM users WHERE pid=?',+m[1]):Q1('SELECT id,name,pid FROM users WHERE id=?',+m[1])):null;
   if(!t)t=Q1('SELECT id,name,pid FROM users WHERE lower(email)=?',a.toLowerCase());if(!t)t=Q1('SELECT id,name,pid FROM users WHERE name=?',a)}
   if(!t)return send(r,404,{error:'Conta não encontrada: '+a.replace(/[<>&]/g,'')});
   const note='dev '+u.name+' (chat) '+cmd;
   if(cmd==='diamantes'||cmd==='oricalco')X('INSERT INTO credits(uid,dia,orc,note,at) VALUES(?,?,?,?,?)',t.id,cmd==='diamantes'?qtd:0,cmd==='oricalco'?qtd:0,note,Date.now());
-  else{const op=cmd==='levelup'?{t:'lv',n:qtd}:cmd==='gold'?{t:'gold',n:qtd}:cmd==='bau'?{t:'bau',d:arg,n:qtd}:{t:'pj',r:arg,n:qtd};X('INSERT INTO devops(uid,op,at) VALUES(?,?,?)',t.id,JSON.stringify(op),Date.now());}
+  else{const op=cmd==='job'?{t:'jb',n:qtd}:cmd==='levelup'?{t:'lv',n:qtd}:cmd==='gold'?{t:'gold',n:qtd}:cmd==='bau'?{t:'bau',d:arg,n:qtd}:{t:'pj',r:arg,n:qtd};X('INSERT INTO devops(uid,op,at) VALUES(?,?,?)',t.id,JSON.stringify(op),Date.now());}
   send(r,200,{ok:1,id:t.pid||t.id,name:t.name})},
  async 'GET /api/gd/recall'(q,r){const u=user(q);if(!u)return send(r,401,{});send(r,200,rcView(u))},
  async 'POST /api/gd/recall'(q,r){const u=user(q);if(!u)return send(r,401,{});const m=gdMe(u.id,'L');if(!m||m.rk!==0)return send(r,403,{error:'Só o líder da guilda pode usar o Recall.'});if(rcLv(m.g)<RC_LV&&!u.dev)return send(r,403,{error:'A guilda precisa estar no nível '+RC_LV+'.'});const b=await body(q),ch=Math.floor(+b.ch),x=+b.x,y=+b.y;if(!(ch>=1&&ch<=70)||[11,12,13,14,16].includes(ch)||!(x>=0&&x<=200)||!(y>=0&&y<=200))return send(r,400,{error:'Local inválido para o Recall.'});const now=Date.now(),old=Q1('SELECT t FROM gdrc WHERE g=?',m.g);if(old&&now-old.t<RC_CD)return send(r,429,{error:'Recall em recarga.',cd:old.t+RC_CD});X('INSERT OR REPLACE INTO gdrc(g,t,ch,x,y,uid,nm) VALUES(?,?,?,?,?,?,?)',m.g,now,ch,x,y,u.id,String(u.name||'Líder').slice(0,24));send(r,200,Object.assign({ok:1},rcView(u)))},
