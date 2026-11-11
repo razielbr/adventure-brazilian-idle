@@ -48,3 +48,9 @@ Atualizações de 09/11 e 10/11/2026
 - **Lobby:** removidos os avisos de drop que apareciam ao lado do chat. O histórico continua na aba "Drop" do chat.
 - **Tela de login:** nova aba "⬇️ DOWNLOAD (Patcher para Windows)" na parte de baixo do quadro de login. Ela não aparece dentro do próprio patcher.
 - **Carregamento:** ao atualizar a página, agora aparece uma tela "Carregando…" em vez de mostrar por 1 a 2 segundos a tela do modo IDLE antes do lobby.
+- **Gênio:** a lista de teleporte agora mostra o valor de cada destino (1.000 🪙, ou "grátis" para VIP) e o seu ouro atual.
+- **Bambu de Treino:** agora tem uma telinha ao lado mostrando, ao vivo, o DPS subindo a cada ataque e skill. Mostra também o total de dano, o último dano, o maior dano, o tempo e a quantidade de ataques. A telinha some depois de 3 segundos sem bater.
+- **Ciclope da Floresta:** nova sprite (orc com machado) andando e atacando, em todas as variações de cor.
+- **Jogadores por mapa:** o título do mapa mostra quantos jogadores estão nele (👥), e o Mapa do Mundo (M) mostra a quantidade de jogadores em cada mapa e o total online. Atualiza sozinho a cada poucos segundos.
+- **PK Mode:** botão "PK OPEN" ao lado do LV (acima do círculo de nível). Libera no nível 200; ligado, você pode atacar qualquer jogador nível 200+ fora das cidades, mesmo que ele não tenha ligado o PK Mode. Jogadores abaixo do nível 200 nunca podem ser atacados. Ligar avisa todos os jogadores do mesmo mapa, só desliga depois de 1 minuto, dá +5% de XP e +0,02% de drop de equipamentos; morrer para jogador custa 7% de XP e volta para Amazonas City.
+- **Mundo Chazzadorah:** o Mapa do Mundo agora mostra o nome do mundo e tem uma seta ▶ para a Região Inca (bloqueada até os mapas ficarem prontos).
