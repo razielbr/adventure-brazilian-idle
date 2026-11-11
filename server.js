@@ -111,7 +111,7 @@ function aSettle(){try{const now=Date.now();for(const a of Q('SELECT * FROM auc 
 setTimeout(aSettle,6000);setInterval(aSettle,30000);
 db.exec('CREATE TABLE IF NOT EXISTS shops(uid INT PRIMARY KEY,name TEXT,sname TEXT,ch INT,x REAL,y REAL,items TEXT,hb INT)');
 try{db.exec('ALTER TABLE shops ADD COLUMN st TEXT')}catch(e){}db.exec('CREATE TABLE IF NOT EXISTS shopsales(id INTEGER PRIMARY KEY AUTOINCREMENT,ts INT,seller INT,sname TEXT,buyer INT,bname TEXT,cur TEXT,price REAL,k TEXT,iuid TEXT,item TEXT)');
-const SH_CH=new Set([50]),SH_TTL=240000;
+const SH_CH=new Set([50,51,52,53,54,55,56,57,58,59,60,75]),SH_TTL=240000;
 function shClose(uid){const w=Q1('SELECT * FROM shops WHERE uid=?',uid);if(!w)return[];if(!X('DELETE FROM shops WHERE uid=?',uid).changes)return[];let its=[];try{its=JSON.parse(w.items)}catch(e){}const back=its.filter(i=>!i.sold);back.forEach(i=>{if(i.it&&i.it.uid)X('UPDATE ids SET gone=0 WHERE uid=? AND owner=?',i.it.uid,uid)});return back}
 function shSweep(){try{for(const w of Q('SELECT uid FROM shops WHERE hb<?',Date.now()-SH_TTL)){shClose(w.uid).forEach(i=>aOp(w.uid,{t:'sr',k:i.k,it:i.it}))}}catch(e){}}
 setInterval(shSweep,15000);
@@ -188,7 +188,8 @@ n.forEach(m=>X('INSERT INTO alerts(uid,msg,at) VALUES(?,?,?)',uid,m,now));return
 
 // ================= SALAS EM TEMPO REAL (lobby, chat, casas) — SSE, sem dependências =================
 // Cliente abre GET /api/rt?room=lobby3 (fluxo SSE, com Authorization) e envia POST /api/rt/send.
-const LOBBY_MAX=+process.env.LOBBY_MAX||20,LOBBY_VIP=+process.env.LOBBY_VIP_MAX||40;const ROOMS=new Map(),RTM={max:+process.env.ROOM_MAX||120,perUser:3,flushMs:400};let peerSeq=0;
+const LOBBY_MAX=+process.env.LOBBY_MAX||20,LOBBY_VIP=+process.env.LOBBY_VIP_MAX||40;const POPC={t:0,v:null};
+const ROOMS=new Map(),RTM={max:+process.env.ROOM_MAX||120,perUser:3,flushMs:400};let peerSeq=0;
 const ROOM_RE=/^(lobby\d{1,4}|home[\w:]{1,16})$/,EV_OK=new Set(['chat','knock','knockr','hbuy','hbuyr','hit','kill','fx']);
 const sseW=(res,ev,d)=>{try{res.write('event: '+ev+'\ndata: '+JSON.stringify(d)+'\n\n')}catch(e){}};
 function rtFlush(rm){rm.timer=null;if(!rm.peers.size){ROOMS.delete(rm.n);return}
@@ -249,11 +250,12 @@ const rtRoutes={
   sseW(r,'hello',{peer:id,uid:'u'+u.id,name:u.name,dev:!!u.dev});
   sseW(r,'pp',{u:[...rm.peers.values()].filter(x=>x.id!==id||1).map(x=>({peer:x.id,presence:x.presence,kind:'viewer'})),d:[]});
   rtMark(rm,id,0);q.on('close',()=>rtDrop(rm,p))},
+ 'GET /api/pop'(q,r){const u=user(q);if(!u)return send(r,401,{});const now=Date.now();if(POPC.v&&now-POPC.t<4000)return send(r,200,POPC.v);const m={},seen=new Set(),all=new Set();for(const[nm,rm] of ROOMS){const x=/^lobby(\d{1,4})$/.exec(nm);if(!x)continue;let n=(+x[1])%1000;n=(n>=50&&n<=60)?50:(n>100?Math.floor(n/100):n);for(const p of rm.peers.values()){all.add(p.uid);const k=n+':'+p.uid;if(seen.has(k))continue;seen.add(k);m[n]=(m[n]|0)+1}}POPC.t=now;POPC.v={m,tot:all.size};send(r,200,POPC.v)},
  async 'POST /api/rt/send'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),rm=ROOMS.get(String(b.room||'')),p=rm&&rm.peers.get(String(b.peer||''));
   if(!p||p.uid!==u.id)return send(r,404,{error:'sala/peer desconhecido'});
   if(b.t==='presence'){if(rtBucket(p,'pr',1000)>6)return send(r,429,{});const j=JSON.stringify(b.presence==null?null:cleanObj(b.presence,0));if(j.length>6000)return send(r,413,{});p.presence=b.presence==null?null:JSON.parse(j);rtMark(rm,p.id,0);return send(r,200,{ok:1})}
   if(b.t==='leave'){rtDrop(rm,p);return send(r,200,{ok:1})}
-  if(b.t==='emit'){const type=String(b.type||'');if(!EV_OK.has(type))return send(r,400,{});if((type==='hit'||type==='kill')&&b.room!=='lobby11'&&b.room!=='lobby70')return send(r,400,{});if(rtBucket(p,'em',1000)>(type==='chat'?2:type==='hit'?20:type==='kill'?4:type==='fx'?6:8))return send(r,429,{});
+  if(b.t==='emit'){const type=String(b.type||'');if(!EV_OK.has(type))return send(r,400,{});if((type==='hit'||type==='kill')&&!/^lobby\d{1,4}$/.test(String(b.room||'')))return send(r,400,{});if(rtBucket(p,'em',1000)>(type==='chat'?2:type==='hit'?20:type==='kill'?4:type==='fx'?6:8))return send(r,429,{});
    const j=JSON.stringify(b.data==null?{}:b.data);if(j.length>2000)return send(r,413,{});let data=JSON.parse(j);if(type==='chat'&&data&&typeof data==='object'){const now=Date.now(),mu=muteOf(u.id);if(mu&&!u.dev)return send(r,403,{error:'mute',until:mu});const t=cleanTxt(data.t,160);if(!t)return send(r,200,{ok:1});
     if(!u.dev){if(blockedTxt(t))return send(r,422,{error:'link'});if(rtBucket(p,'chm',15000)>6){X('INSERT OR REPLACE INTO mutes(uid,until,why) VALUES(?,?,?)',u.id,now+60000,'flood');return send(r,429,{error:'mute',until:now+60000})}}
     data={n:cleanTxt(u.name,24),t,c:/^#[0-9a-f]{3,8}$/i.test(String(data.c||''))?String(data.c):'',r:data.r?1:0}}else if(data&&typeof data==='object')data=cleanObj(data,0);
@@ -321,7 +323,7 @@ const rtRoutes={
   send(r,200,{now,[k]:wbPub(k,u.id),killed:nf>=1?1:0})},
  async 'GET /api/ops'(q,r){const u=user(q);if(!u)return send(r,401,{});const rows=Q('SELECT id,op FROM devops WHERE uid=? AND done=0 ORDER BY id LIMIT 50',u.id);const ops=[];rows.forEach(w=>{try{ops.push(JSON.parse(w.op))}catch(e){}X('UPDATE devops SET done=1 WHERE id=?',w.id)});if(ops.length)X('UPDATE users SET gexp=? WHERE id=?',Date.now()+180000,u.id);send(r,200,{ops})},
  'GET /api/auc'(q,r){const u=user(q);if(!u)return send(r,401,{});aSettle();const rows=Q('SELECT * FROM auc WHERE done=0 ORDER BY end LIMIT 150');const list=[];rows.forEach(a=>{try{list.push({id:a.id,sn:a.sname,k:a.kind,it:JSON.parse(a.item),cur:a.cur,mode:a.mode,price:a.price,t0:a.t0,end:a.end,bid:a.bid,me:a.bidder===u.id?1:0,mine:a.seller===u.id?1:0})}catch(e){}});send(r,200,{list,now:Date.now()})},
- async 'POST /api/auc/new'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),k=b.k==='c'||b.k==='e'||b.k==='r'||b.k==='b'?b.k:'',cur=String(b.cur||''),mode=b.mode==='fix'?'fix':'bid',dur=+b.dur===24?24:12;let price=+b.price;
+ async 'POST /api/auc/new'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),k=b.k==='c'||b.k==='e'||b.k==='r'||b.k==='b'||b.k==='q'?b.k:'',cur=String(b.cur||''),mode=b.mode==='fix'?'fix':'bid',dur=+b.dur===24?24:12;let price=+b.price;
   if(!k||!AU_CUR.has(cur)||!b.it||typeof b.it!=='object'||!(price>0)||price>1e13)return send(r,400,{error:'Dados inválidos.'});price=aRound(cur,price);const js=JSON.stringify(b.it);if(js.length>30000)return send(r,400,{error:'Item inválido.'});
   if(Q1('SELECT COUNT(*) c FROM auc WHERE seller=? AND done=0',u.id).c>=10)return send(r,409,{error:'Máximo de 10 leilões abertos.'});
   const now=Date.now(),id=X('INSERT INTO auc(seller,sname,kind,item,cur,mode,price,t0,end) VALUES(?,?,?,?,?,?,?,?,?)',u.id,String(u.name).replace(/[<>&]/g,'').slice(0,24),k,js,cur,mode,price,now,now+dur*36e5).lastInsertRowid;send(r,200,{ok:1,id:Number(id)})},
@@ -338,7 +340,7 @@ const rtRoutes={
  async 'POST /api/shop/open'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),ch=Math.trunc(+b.ch),x=+b.x,y=+b.y;if(!SH_CH.has(ch))return send(r,403,{error:'Lojas só podem ser abertas nas cidades.'});if(!(x>=0&&x<=400&&y>=0&&y<=400))return send(r,400,{error:'Posição inválida.'});
   if(Q1('SELECT 1 a FROM shops WHERE uid=?',u.id))return send(r,409,{error:'Você já tem uma loja aberta.'});const name=String(b.name||'').replace(/[<>&"'`]/g,'').trim().slice(0,24)||('Loja de '+String(u.name).slice(0,12));
   const its=Array.isArray(b.items)?b.items.slice(0,10):[];if(!its.length)return send(r,400,{error:'Coloque ao menos 1 item.'});const out=[];
-  for(const o of its){const k=o&&o.k,price=+(o&&o.price),cur=String(o&&o.cur||'');if(!(k==='e'||k==='r'||k==='b')||!AU_CUR.has(cur)||!(price>0)||price>1e13||!o.it||typeof o.it!=='object')return send(r,400,{error:'Item inválido.'});const js=JSON.stringify(o.it);if(js.length>30000)return send(r,400,{error:'Item inválido.'});out.push({k,it:o.it,cur,price:aRound(cur,price),sold:0})}
+  for(const o of its){const k=o&&o.k,price=+(o&&o.price),cur=String(o&&o.cur||'');if(!(k==='e'||k==='r'||k==='b'||k==='q')||!AU_CUR.has(cur)||!(price>0)||price>1e13||!o.it||typeof o.it!=='object')return send(r,400,{error:'Item inválido.'});const js=JSON.stringify(o.it);if(js.length>30000)return send(r,400,{error:'Item inválido.'});out.push({k,it:o.it,cur,price:aRound(cur,price),sold:0})}
   try{db.exec('ALTER TABLE shops ADD COLUMN st TEXT')}catch(e){}const hx=v=>/^#[0-9a-f]{6}$/i.test(String(v||''))?String(v):'',sb=b.st&&typeof b.st==='object'?b.st:{},stj=JSON.stringify({c:hx(sb.c),t:hx(sb.t),f:Math.max(0,Math.min(7,Math.trunc(+sb.f)||0))});
   X('INSERT INTO shops(uid,name,sname,ch,x,y,items,hb,st) VALUES(?,?,?,?,?,?,?,?,?)',u.id,name,String(u.name).replace(/[<>&]/g,'').slice(0,24),ch,x,y,JSON.stringify(out),Date.now(),stj);send(r,200,{ok:1})},
  'POST /api/shop/hb'(q,r){const u=user(q);if(!u)return send(r,401,{});const w=Q1('SELECT items FROM shops WHERE uid=?',u.id);if(!w)return send(r,200,{open:0});X('UPDATE shops SET hb=? WHERE uid=?',Date.now(),u.id);let its=[];try{its=JSON.parse(w.items)}catch(e){}send(r,200,{open:1,left:its.filter(i=>!i.sold).length})},
