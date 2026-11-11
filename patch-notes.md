@@ -4,6 +4,7 @@ Atualizações de 09/11 e 10/11/2026
 ## 10/11 (hoje)
 
 ### Novo
+- **Invocação do Sleifer:** ao invocar no Cristal Negro, o servidor inteiro (todos os CH) recebe o aviso **"A Calamidade Foi Renascida!!"**, flashes vermelho/azul e a tela treme como terremoto por 5 segundos.
 - **Chat de voz (Grupo e Guilda):** botão 🎤 Voz na barra do chat. Grupo tem sala própria; a guilda tem 5 salas de voz com limite de **8 pessoas por sala**. Painel com quem está falando, silenciar microfone e silenciar cada jogador. Só funciona no servidor online (precisa do server.js novo e permissão de microfone).
 - **Tutorial para contas novas (MMORPG):** setas e destaque mostram o Canal (CH VIP), a CashShop, o Inventário (I), o Mapa do Mundo (M) e as Opções de Jogo. Dá pra pular, e o botão "❓ Tutorial" nas Opções do lobby abre de novo.
 - **Sleifer (Abismo Cristalino):** as 4 joias saíram. Agora há um Cristal Negro com raios no mapa. Clique nele de perto: ele pede as 10 pérolas (1 de cada, consumidas) e mostra quais faltam. Com todas no inventário, o botão "Invocar Sleifer" libera. Continua valendo o intervalo de 12h depois que ele for derrotado.
