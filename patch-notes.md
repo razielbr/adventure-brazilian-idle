@@ -47,3 +47,4 @@ Atualizações de 09/11 e 10/11/2026
 - **Caixa de Mensagens (chat privado):** agora é uma janela que dá para mover (arrastando o título) e redimensionar (canto inferior direito). A posição e o tamanho ficam salvos. Não escurece mais a tela.
 - **Lobby:** removidos os avisos de drop que apareciam ao lado do chat. O histórico continua na aba "Drop" do chat.
 - **Tela de login:** nova aba "⬇️ DOWNLOAD (Patcher para Windows)" na parte de baixo do quadro de login. Ela não aparece dentro do próprio patcher.
+- **Carregamento:** ao atualizar a página, agora aparece uma tela "Carregando…" em vez de mostrar por 1 a 2 segundos a tela do modo IDLE antes do lobby.
