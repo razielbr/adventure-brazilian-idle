@@ -106,7 +106,7 @@ setTimeout(hsSweep,5000);setInterval(hsSweep,36e5);
 db.exec('CREATE TABLE IF NOT EXISTS auc(id INTEGER PRIMARY KEY AUTOINCREMENT,seller INT,sname TEXT,kind TEXT,item TEXT,cur TEXT,mode TEXT,price REAL,t0 INT,end INT,bid REAL DEFAULT 0,bidder INT DEFAULT 0,done INT DEFAULT 0)');
 const AU_CUR=new Set(['orc','gold','dia']),aRound=(c,v)=>c==='cred'?Math.round(v*100)/100:Math.max(1,Math.round(v)),aMin=a=>a.bid?(a.cur==='cred'?Math.round(a.bid*105+1)/100:Math.ceil(a.bid*1.05)):a.price,aOp=(uid,op)=>{if(op&&(op.t==='ac'||op.t==='gw'||op.t==='sc')&&op.cur==='dia')exDia(uid,op.n);return X('INSERT INTO devops(uid,op,at) VALUES(?,?,?)',uid,JSON.stringify(op),Date.now())};
 function aSettle(){try{const now=Date.now();for(const a of Q('SELECT * FROM auc WHERE done=0 AND end<=?',now)){if(!X('UPDATE auc SET done=1 WHERE id=? AND done=0',a.id).changes)continue;let it;try{it=JSON.parse(a.item)}catch(e){continue}
- if(a.bidder){aOp(a.bidder,{t:'ai',k:a.kind,it,m:'won',g:a.bid,cur:a.cur});aOp(a.seller,{t:'ac',cur:a.cur,n:aRound(a.cur,a.bid*.97),g:a.bid,m:'sold',k:a.kind,it})}else aOp(a.seller,{t:'ai',k:a.kind,it,m:'back'})}
+ if(a.bidder){aOp(a.bidder,{t:'ai',k:a.kind,it,m:'won',g:a.bid,cur:a.cur});aOp(a.seller,{t:'ac',cur:a.cur,n:aRound(a.cur,a.bid*(a.cur==='gold'?.92:1)),g:a.bid,m:'sold',k:a.kind,it})}else aOp(a.seller,{t:'ai',k:a.kind,it,m:'back'})}
  X('DELETE FROM auc WHERE done=1 AND end<?',now-864e5)}catch(e){}}
 setTimeout(aSettle,6000);setInterval(aSettle,30000);
 db.exec('CREATE TABLE IF NOT EXISTS shops(uid INT PRIMARY KEY,name TEXT,sname TEXT,ch INT,x REAL,y REAL,items TEXT,hb INT)');
@@ -354,7 +354,7 @@ const rtRoutes={
   const need=aRound(a.cur,v-(a.bidder===u.id?a.bid:0));X('UPDATE auc SET bid=?,bidder=? WHERE id=?',v,u.id,a.id);send(r,200,{ok:1,need,v})},
  async 'POST /api/auc/buy'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),a=Q1('SELECT * FROM auc WHERE id=? AND done=0',Math.trunc(+b.id||0));if(!a||Date.now()>=a.end)return send(r,404,{error:'Leilão encerrado.'});
   if(a.mode!=='fix'||a.seller===u.id)return send(r,400,{error:'Não é possível comprar.'});if(!X('UPDATE auc SET done=1 WHERE id=? AND done=0',a.id).changes)return send(r,409,{error:'Já vendido.'});const it=JSON.parse(a.item);
-  aOp(a.seller,{t:'ac',cur:a.cur,n:aRound(a.cur,a.price*.97),g:a.price,m:'sold',k:a.kind,it});send(r,200,{ok:1,k:a.kind,it,price:a.price,cur:a.cur})},
+  aOp(a.seller,{t:'ac',cur:a.cur,n:aRound(a.cur,a.price*(a.cur==='gold'?.92:1)),g:a.price,m:'sold',k:a.kind,it});send(r,200,{ok:1,k:a.kind,it,price:a.price,cur:a.cur})},
 
  async 'POST /api/shop/open'(q,r){const u=user(q);if(!u)return send(r,401,{});const b=await body(q),ch=Math.trunc(+b.ch),x=+b.x,y=+b.y;if(!SH_CH.has(ch))return send(r,403,{error:'Lojas só podem ser abertas nas cidades.'});if(!(x>=0&&x<=400&&y>=0&&y<=400))return send(r,400,{error:'Posição inválida.'});
   if(Q1('SELECT 1 a FROM shops WHERE uid=?',u.id))return send(r,409,{error:'Você já tem uma loja aberta.'});const name=String(b.name||'').replace(/[<>&"'`]/g,'').trim().slice(0,24)||('Loja de '+String(u.name).slice(0,12));
