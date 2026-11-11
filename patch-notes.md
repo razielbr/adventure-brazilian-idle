@@ -4,6 +4,13 @@ Atualizações de 09/11 e 10/11/2026
 ## 10/11 (hoje)
 
 ### Novo
+- **Montarias da Domadora (Poro, Dragão e Siamês):** recarga aumentada de 4s para **5s**. Vale ao montar e ao desmontar.
+- **Banco da guilda na tecla G:** a janela da guilda agora mostra o banco (ouro acumulado, taxa de manutenção das casas e o botão 💸 Dividir ouro para o líder).
+- **Taxa do Leilão:** agora é **8%** e vale só para vendas em **Gold**. Oricalco e Diamantes ficam sem taxa. (Precisa do server.js novo.)
+- **Troca de canal em combate:** quem levou dano (de mob ou de outro jogador) nas últimas **5 segundos** não consegue trocar de CH. Depois de 5s sem dano, libera.
+- **Botão 🎤 Voz** corrigido: agora aparece na barra do chat do MMORPG (Mapa/Grupo/Guilda/Global/Drop).
+- **Mover com WASD (opcional):** em Opções de Jogo, ative "Mover com WASD". Dá para mover com o clique. Fica desligado por padrão e não funciona enquanto você digita no chat. Com WASD ligado, a tecla S deixa de abrir as skills (use K).
+- **Mobs mais fortes por nível:** os atributos dos mobs agora crescem o dobro a cada nível (15 pontos por nível em vez de 7,5). Jogadores não mudam.
 - **Invocação do Sleifer:** ao invocar no Cristal Negro, o servidor inteiro (todos os CH) recebe o aviso **"A Calamidade Foi Renascida!!"**, flashes vermelho/azul e a tela treme como terremoto por 5 segundos.
 - **Chat de voz (Grupo e Guilda):** botão 🎤 Voz na barra do chat. Grupo tem sala própria; a guilda tem 5 salas de voz com limite de **8 pessoas por sala**. Painel com quem está falando, silenciar microfone e silenciar cada jogador. Só funciona no servidor online (precisa do server.js novo e permissão de microfone).
 - **Tutorial para contas novas (MMORPG):** setas e destaque mostram o Canal (CH VIP), a CashShop, o Inventário (I), o Mapa do Mundo (M) e as Opções de Jogo. Dá pra pular, e o botão "❓ Tutorial" nas Opções do lobby abre de novo.
