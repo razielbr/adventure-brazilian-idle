@@ -3183,7 +3183,7 @@ const mkPc=(uid,init)=>{const old=V.peers[uid];if(old&&old.pc){try{old.pc.close(
  if(init)pc.onnegotiationneeded=async()=>{try{const o=await pc.createOffer();await pc.setLocalDescription(o);await sig(uid,{sdp:pc.localDescription})}catch(e){console.error('vc offer',e)}};
  return P};
 const onSig=async s=>{try{let P=V.peers[s.from];const d=s.d;if(d.sdp&&d.sdp.type==='offer'){if(!P||P.init||P.pc.signalingState==='closed')P=mkPc(s.from,false)}else if(!P)P=mkPc(s.from,false);const pc=P.pc;
- if(d.sdp){await pc.setRemoteDescription(d.sdp);while(P.pend.length)await pc.addIceCandidate(P.pend.shift()).catch(()=>{});if(d.sdp.type==='offer'){const a=await pc.createAnswer();await pc.setLocalDescription(a);await sig(s.from,{sdp:pc.localDescription})}}
+ if(d.sdp){await pc.setRemoteDescription(d.sdp);while(P.pend.length)await pc.addIceCandidate(P.pend.shift()).catch(()=>{});if(d.sdp.type==='offer'){try{const tr=V.stream&&V.stream.getAudioTracks()[0];if(tr)for(const t of pc.getTransceivers()){if(t.receiver&&t.receiver.track&&t.receiver.track.kind==='audio'){if(!t.sender.track)await t.sender.replaceTrack(tr).catch(()=>{});try{t.direction='sendrecv'}catch(e){}}}}catch(e){console.error('vc tx',e)}const a=await pc.createAnswer();await pc.setLocalDescription(a);await sig(s.from,{sdp:pc.localDescription})}}
  else if(d.c){if(pc.remoteDescription)await pc.addIceCandidate(d.c).catch(()=>{});else P.pend.push(d.c)}}catch(e){console.error('vc sig',e)}};
 const poll=async()=>{if(!V.on)return;const j=await api('GET','/api/vc/poll');if(!V.on)return;if(j&&j.out){leave(true,j.why||'Você saiu da sala de voz.');return}if(!j||j.error)return;
  const ids=new Set((j.peers||[]).map(p=>p.uid));(j.peers||[]).forEach(p=>{V.names[p.uid]=p.n});
