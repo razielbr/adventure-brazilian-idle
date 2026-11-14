@@ -62,7 +62,7 @@ function summarize(st){const ch=Array.isArray(st.chars)?st.chars:[];return{maxLv
 // Se o mesmo uid aparece em outra conta, ou volta depois de ter sumido (save antigo restaurado), é clone: o item é removido do save e vira alerta.
 const UID_RE=/^[0-9a-f]{12,16}$/,ITEM_KEYS=['eqs','runes','pots','books'];
 // Mundos IDLE/LOBBY: os itens do mundo que não está ativo ficam em st.W[mundo]; contam como presentes (senão trocar de mundo marcaria tudo como "gasto" e apagaria ao voltar).
-function worldsOf(st){const o=[st];if(st&&st.W&&typeof st.W==='object')Object.values(st.W).forEach(w=>{if(w&&typeof w==='object')o.push(w)});return o}
+function worldsOf(st){const o=[st];if(st&&st.W&&typeof st.W==='object')Object.values(st.W).forEach(w=>{if(w&&typeof w==='object')o.push(w)});/* bolsas guardadas: Baú da Casa (hbx), Storage do Gênio (gst) e mochila de cada personagem (itC) também contam como presentes */const ex=[];o.forEach(w=>{for(const k of ['hbx','gst'])if(w[k]&&typeof w[k]==='object')ex.push(w[k]);if(w.itC&&typeof w.itC==='object')Object.values(w.itC).forEach(b=>{if(b&&typeof b==='object')ex.push(b)})});return o.concat(ex)}
 function collectUids(st){const o=[];worldsOf(st).forEach(w=>{ITEM_KEYS.forEach(k=>{(Array.isArray(w[k])?w[k]:[]).forEach(x=>{if(x&&UID_RE.test(x.uid))o.push([x.uid,k])})});(Array.isArray(w.chars)?w.chars:[]).forEach(c=>{if(c&&UID_RE.test(c.uid))o.push([c.uid,'chars'])})});return o}
 function idGuard(uid,st,prev,now){const cur=collectUids(st),bad=new Set(),msgs=[];
  const dupIn=new Set(),seen=new Set();cur.forEach(([u])=>{if(seen.has(u))dupIn.add(u);seen.add(u)});
